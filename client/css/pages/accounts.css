@@ -1,0 +1,11 @@
+.accounts-panel { margin-top: var(--space-6); }
+.account-provider-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+.account-provider { padding: var(--space-5); display: grid; gap: var(--space-5); box-shadow: none; }
+.account-provider__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.account-provider__type, .account-provider__detail { color: var(--color-text-muted); font-size: 0.875rem; }
+.account-provider__status { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+.account-provider__status[data-connected="true"] { color: var(--color-success); }
+.account-provider__actions { display: flex; justify-content: flex-end; margin-top: auto; }
+.accounts-note { color: var(--color-text-muted); font-size: 0.8rem; max-width: 48rem; }
+@media (max-width: 1050px) { .account-provider-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .account-provider-grid { grid-template-columns: 1fr; } }
