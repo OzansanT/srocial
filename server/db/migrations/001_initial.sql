@@ -158,6 +158,7 @@ CREATE TABLE scheduler_jobs (
   type text NOT NULL,
   publication_id uuid REFERENCES publications(id) ON DELETE CASCADE,
   campaign_id uuid REFERENCES campaigns(id) ON DELETE CASCADE,
+  account_id uuid REFERENCES accounts(id) ON DELETE CASCADE,
   state text NOT NULL,
   scheduled_at timestamptz NOT NULL,
   attempts integer NOT NULL DEFAULT 0,
@@ -165,7 +166,7 @@ CREATE TABLE scheduler_jobs (
   locked_by text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CHECK (publication_id IS NOT NULL OR campaign_id IS NOT NULL)
+  CHECK (publication_id IS NOT NULL OR campaign_id IS NOT NULL OR account_id IS NOT NULL)
 );
 
 CREATE INDEX idx_posts_scheduled_at ON posts(scheduled_at);
