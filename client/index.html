@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/css/components/button.css">
   <link rel="stylesheet" href="/css/components/card.css">
   <link rel="stylesheet" href="/css/components/form.css">
+  <link rel="stylesheet" href="/css/components/select.css">
   <link rel="stylesheet" href="/css/pages/dashboard.css">
   <link rel="stylesheet" href="/css/pages/composer.css">
 </head>
@@ -55,12 +56,22 @@
           <div class="panel__header"><div><p class="eyebrow">Scheduler</p><h2>Create social post</h2></div></div>
           <form class="composer" id="social-composer">
             <label class="field" for="post-caption"><span>Caption</span><textarea id="post-caption" name="caption" rows="5" maxlength="10000" required placeholder="Write the master caption…"></textarea></label>
-            <fieldset class="platform-picker"><legend>Platforms</legend>
-              <label><input type="checkbox" name="platform" value="instagram"> Instagram</label>
-              <label><input type="checkbox" name="platform" value="facebook"> Facebook</label>
-              <label><input type="checkbox" name="platform" value="threads"> Threads</label>
-              <label><input type="checkbox" name="platform" value="tiktok"> TikTok</label>
+
+            <fieldset class="platform-picker"><legend>Destinations</legend>
+              <div class="platform-account-grid">
+                <div class="platform-account-row"><label class="platform-account-row__choice"><input type="checkbox" name="platform" value="instagram" disabled> Instagram</label><select name="account:instagram" aria-label="Instagram account" disabled><option value="">Loading accounts…</option></select></div>
+                <div class="platform-account-row"><label class="platform-account-row__choice"><input type="checkbox" name="platform" value="facebook" disabled> Facebook</label><select name="account:facebook" aria-label="Facebook account" disabled><option value="">Loading accounts…</option></select></div>
+                <div class="platform-account-row"><label class="platform-account-row__choice"><input type="checkbox" name="platform" value="threads" disabled> Threads</label><select name="account:threads" aria-label="Threads account" disabled><option value="">Loading accounts…</option></select></div>
+                <div class="platform-account-row"><label class="platform-account-row__choice"><input type="checkbox" name="platform" value="tiktok" disabled> TikTok</label><select name="account:tiktok" aria-label="TikTok account" disabled><option value="">Loading accounts…</option></select></div>
+              </div>
+              <small class="platform-picker__help">Only connected accounts can be scheduled. Provider integrations are enabled independently.</small>
             </fieldset>
+
+            <div class="media-grid">
+              <label class="field" for="media-type"><span>Media type</span><select id="media-type" name="mediaType"><option value="image">Image</option><option value="video">Video / Reel</option></select></label>
+              <label class="field" for="media-url"><span>Media URL</span><input id="media-url" name="mediaUrl" type="url" inputmode="url" placeholder="https://cdn.example.com/post.jpg"><small>Optional globally; Instagram publishing requires provider-supported HTTPS media.</small></label>
+            </div>
+
             <label class="field" for="scheduled-at"><span>Publish time</span><input id="scheduled-at" name="scheduledAt" type="datetime-local" required><small>Local browser time; Srocial stores the scheduled moment in UTC.</small></label>
             <div class="composer__footer"><p class="form-feedback" id="composer-feedback" aria-live="polite"></p><button class="button button--primary" type="submit">Schedule</button></div>
           </form>

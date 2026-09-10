@@ -1,465 +1,212 @@
 # How to Run Srocial — Beginner Guide
 
-This guide is written for someone who has never run a Node.js project before.
+This guide explains how to open the current Srocial project locally, test it safely, connect Instagram when you are ready, and understand the two switches that control real publishing.
 
-You do **not** need to understand programming to start the current local version of Srocial.
+## 1. Install Node.js
 
-> Important: the current version can create and save scheduled social posts locally, but it does **not** publish them to Instagram, Facebook, Threads, TikTok, or WhatsApp yet. Real provider publishing is intentionally disabled while those integrations are still being developed.
+Srocial requires Node.js 20 or newer.
 
----
-
-## 1. What You Need
-
-For the current version, you only need:
-
-- a Windows, macOS, or Linux computer;
-- Node.js version 20 or newer;
-- the Srocial project folder;
-- a web browser such as Chrome, Edge, Firefox, or Safari.
-
-You do **not** need these yet just to open Srocial locally:
-
-- PostgreSQL;
-- Redis;
-- Meta API keys;
-- TikTok API keys;
-- WhatsApp API keys;
-- Instagram login information.
-
-Srocial currently uses a local JSON file for development data.
-
----
-
-# Windows — Easiest Method
-
-## 2. Install Node.js
-
-1. Open your browser.
-2. Go to:
-
-   https://nodejs.org/
-
-3. Download the current **LTS** version.
-4. Run the installer.
-5. Keep the normal/default installer options.
-6. Finish the installation.
-7. Close any Command Prompt or PowerShell windows that were already open.
-
-Now open a new terminal.
-
-An easy way:
-
-1. Press the Windows key.
-2. Type:
-
-   ```text
-   cmd
-   ```
-
-3. Open **Command Prompt**.
-
-Check that Node.js works:
-
-```bat
-node -v
-```
-
-You should see something similar to:
+Download the current LTS release from the official Node.js website and install it with the normal options. Then open a new Command Prompt/PowerShell/Terminal and check:
 
 ```text
-v20.x.x
-```
-
-or a newer version such as Node 22.
-
-Also check npm:
-
-```bat
+node -v
 npm -v
 ```
 
-If both commands show version numbers, Node.js is installed correctly.
+You should see version numbers. Node 20, 22, or newer is suitable.
 
----
+## 2. Get the project
 
-## 3. Download Srocial
+### Easiest: Download ZIP
 
-You have two options.
-
-### Option A — Download ZIP
-
-This is the easiest option for a beginner.
-
-1. Open:
-
-   https://github.com/OzansanT/srocial
-
-2. Click the green **Code** button.
+1. Open the `OzansanT/srocial` repository on GitHub.
+2. Click **Code**.
 3. Click **Download ZIP**.
-4. Wait for the download to finish.
-5. Right-click the ZIP file.
-6. Choose **Extract All**.
-7. Open the extracted folder.
+4. Extract the ZIP.
+5. Open the extracted `srocial` folder.
 
-You should see files such as:
+### With Git
+
+```bash
+git clone https://github.com/OzansanT/srocial.git
+cd srocial
+```
+
+The project folder should contain:
 
 ```text
 README.md
 HOW_TO_RUN.md
 package.json
-client
-server
-tests
+client/
+server/
+tests/
 ```
 
-### Option B — Git Clone
+## 3. No `npm install` is required right now
 
-Use this only if Git is already installed.
+The current runtime uses Node.js built-in modules and has no external npm dependency.
 
-Open Command Prompt and run:
-
-```bat
-git clone https://github.com/OzansanT/srocial.git
-cd srocial
-```
-
----
-
-## 4. Open a Terminal Inside the Project Folder
-
-If you downloaded the ZIP:
-
-1. Open the extracted `srocial` folder in File Explorer.
-2. Click the address bar at the top of File Explorer.
-3. Type:
-
-   ```text
-   cmd
-   ```
-
-4. Press Enter.
-
-A Command Prompt window should open directly inside the Srocial folder.
-
-You can check that you are in the correct folder by running:
-
-```bat
-dir
-```
-
-You should see `package.json` in the list.
-
----
-
-## 5. You Do Not Need `npm install` Yet
-
-The current Srocial runtime intentionally uses Node.js built-in modules and has no external npm dependencies.
-
-That means you can currently skip:
+You can therefore start directly with:
 
 ```text
-npm install
-```
-
-If dependencies are added in a later version, this guide will be updated.
-
----
-
-## 6. Start Srocial
-
-Inside the Srocial project folder, run:
-
-```bat
 npm start
 ```
 
-You should see something similar to:
+## 4. Start Srocial safely
 
-```text
-Srocial listening on http://127.0.0.1:3000
+Open a terminal inside the project folder and run:
+
+```bash
+npm start
 ```
 
-**Do not close this terminal window while using Srocial.**
-
-The Node.js server is running inside that window.
-
----
-
-## 7. Open Srocial in Your Browser
-
-Open Chrome, Edge, Firefox, or another browser.
-
-Go to:
+The default address is:
 
 ```text
 http://127.0.0.1:3000
 ```
 
-You should now see the Srocial dashboard.
+Open that address in Chrome, Edge, Firefox, or Safari.
 
-You can also use:
+The default configuration does **not** publish real content because both publishing switches are off:
 
 ```text
-http://localhost:3000
+ALLOW_REAL_PUBLISH=false
+SCHEDULER_ENABLED=false
 ```
 
----
+Keep these defaults while learning or testing locally.
 
-# First Test
+## 5. What you see in the V6 composer
 
-## 8. Create a Test Scheduled Post
+The composer now schedules **accounts**, not only platform names.
 
-On the dashboard:
+A destination looks conceptually like:
 
-1. Find **Create social post**.
-2. Enter a caption, for example:
+```text
+[ ] Instagram      [ @connected_account ▼ ]
+```
 
-   ```text
-   My first Srocial test post
-   ```
+If no connected account exists for a platform, its checkbox/select is disabled. This is intentional; Srocial will not guess which real account should publish a post.
 
-3. Select one or more platforms:
-   - Instagram
-   - Facebook
-   - Threads
-   - TikTok
-4. Choose a date and time in the future.
-5. Click **Schedule**.
+The composer also contains:
 
-You should see a success message.
+```text
+Caption
+Media type: Image / Video
+Media URL: https://...
+Publish time
+```
 
-The post should then appear in the **Upcoming posts** section.
+The media URL must be HTTPS and must be reachable by the provider. Direct file upload is not implemented yet.
 
-The dashboard **Scheduled** counter should also increase.
+## 6. Safe local test without connecting Instagram
 
-### Important
+The browser composer requires a connected account. If you only want to test the internal database/scheduler records without provider credentials, use the legacy development API.
 
-Selecting Instagram, Facebook, Threads, or TikTok here does **not** currently send anything to those services.
+### Windows PowerShell
 
-The application currently creates the internal post, publication, and scheduler records only.
+Run Srocial in one terminal:
 
-This makes it safe to test the scheduler without accidentally publishing real content.
+```powershell
+npm start
+```
 
----
+Open another PowerShell window inside the same project folder and run:
 
-## 9. Where Is My Data Saved?
+```powershell
+$body = @{
+  caption = "My local Srocial test"
+  platforms = @("instagram")
+  scheduledAt = (Get-Date).AddHours(1).ToUniversalTime().ToString("o")
+} | ConvertTo-Json
 
-The development version saves data here:
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:3000/api/posts" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+This creates an **unbound development publication** with no real account attached. With the default safety flags it cannot be published automatically.
+
+### macOS / Linux
+
+With Srocial running, open another terminal and use a future UTC date:
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/posts \
+  -H 'content-type: application/json' \
+  -d '{
+    "caption":"My local Srocial test",
+    "platforms":["instagram"],
+    "scheduledAt":"2027-01-01T12:00:00.000Z"
+  }'
+```
+
+The date must be in the future when you run the command.
+
+## 7. Where local data is stored
+
+Development data is stored in:
 
 ```text
 data/srocial.json
 ```
 
-You normally do not need to edit this file manually.
+It can contain:
 
-The file stores development data such as:
+```text
+posts
+media
+publications
+scheduler jobs
+accounts
+oauth states
+```
 
-- scheduled posts;
-- publication records;
-- scheduler jobs.
+Do not manually place real raw provider tokens in this file. Connected-account tokens are written by the server in encrypted form.
 
-The file is created automatically after Srocial starts using its local repository.
+## 8. Run automated tests
 
----
+From the project folder:
 
-## 10. Stop Srocial
+```bash
+npm test
+```
 
-Go back to the terminal window where Srocial is running.
+A successful run ends with zero failed tests.
 
-Press:
+The repository also runs the test suite and JavaScript syntax checks automatically through GitHub Actions on build branches, pull requests, and `main`.
+
+## 9. Stop Srocial
+
+Return to the terminal running the server and press:
 
 ```text
 Ctrl + C
 ```
 
-The server will stop.
+Srocial stops its recurring scheduler timer, closes the HTTP server, and leaves your local JSON data on disk.
 
-Your saved development posts remain in:
+## 10. Change the port
 
-```text
-data/srocial.json
-```
-
----
-
-## 11. Start It Again Later
-
-Open a terminal inside the Srocial folder again and run:
-
-```bat
-npm start
-```
-
-Then open:
-
-```text
-http://127.0.0.1:3000
-```
-
-Your previously saved local posts should still be available.
-
----
-
-# Test the Project
-
-## 12. Run Automated Tests
-
-Srocial includes automated tests.
-
-Stop the running server first if you want a clean terminal, then run:
-
-```bat
-npm test
-```
-
-You should see the test results in the terminal.
-
-A successful run should finish with zero failed tests.
-
-You can start the application again afterwards with:
-
-```bat
-npm start
-```
-
----
-
-# Configuration
-
-## 13. What Is `.env.example`?
-
-The repository contains:
-
-```text
-.env.example
-```
-
-This file shows configuration variables that Srocial will use as the project grows.
-
-Examples include:
-
-```text
-HOST=127.0.0.1
-PORT=3000
-DATA_FILE=./data/srocial.json
-ALLOW_REAL_PUBLISH=false
-```
-
-It also contains empty placeholders for future Meta, TikTok, and WhatsApp credentials.
-
-### You do not need to fill these API values in yet.
-
-The current project also does **not** automatically load a `.env` file through a package such as `dotenv`.
-
-For normal beginner use, simply run:
-
-```bat
-npm start
-```
-
-and keep the defaults.
-
----
-
-## 14. Change the Port on Windows
-
-The normal port is:
-
-```text
-3000
-```
-
-If port 3000 is already being used by another program, use a different port.
-
-### Command Prompt
+### Windows Command Prompt
 
 ```bat
 set PORT=3001
 npm start
 ```
 
-Then open:
-
-```text
-http://127.0.0.1:3001
-```
-
-### PowerShell
+### Windows PowerShell
 
 ```powershell
 $env:PORT="3001"
 npm start
 ```
 
-Then open:
-
-```text
-http://127.0.0.1:3001
-```
-
-The changed environment variable only needs to be set for that terminal session.
-
----
-
-# macOS / Linux
-
-## 15. Install Node.js
-
-Install Node.js 20 or newer using the official Node.js installer or your preferred package manager.
-
-Check it with:
-
-```bash
-node -v
-npm -v
-```
-
----
-
-## 16. Download the Project
-
-Either download the ZIP from:
-
-```text
-https://github.com/OzansanT/srocial
-```
-
-or clone it:
-
-```bash
-git clone https://github.com/OzansanT/srocial.git
-cd srocial
-```
-
----
-
-## 17. Start Srocial
-
-Run:
-
-```bash
-npm start
-```
-
-Open:
-
-```text
-http://127.0.0.1:3000
-```
-
-Stop it with:
-
-```text
-Ctrl + C
-```
-
-Run tests with:
-
-```bash
-npm test
-```
-
-To use port 3001 instead:
+### macOS / Linux
 
 ```bash
 PORT=3001 npm start
@@ -471,189 +218,246 @@ Then open:
 http://127.0.0.1:3001
 ```
 
----
+## 11. Environment variables
 
-# Common Problems
+The repository contains `.env.example`, which documents supported settings.
 
-## Problem: `node` is not recognized
-
-Example:
+Important defaults:
 
 ```text
-'node' is not recognized as an internal or external command
+APP_ENV=development
+ALLOW_REAL_PUBLISH=false
+SCHEDULER_ENABLED=false
+SCHEDULER_INTERVAL_MS=30000
+HOST=127.0.0.1
+PORT=3000
+PUBLIC_BASE_URL=http://127.0.0.1:3000
+DATA_FILE=./data/srocial.json
 ```
 
-### Fix
+The current project does **not** automatically read a `.env` file with a package such as `dotenv`. Set values in the shell/process environment or in your deployment environment.
 
-1. Install Node.js from https://nodejs.org/.
-2. Finish the installer.
-3. Close the terminal.
-4. Open a new terminal.
-5. Run:
+## 12. Instagram configuration
 
-   ```bat
-   node -v
-   ```
+The Instagram adapter is registered only when both of these values are supplied:
 
----
-
-## Problem: `npm` is not recognized
-
-Node.js may not have installed correctly or the terminal was opened before Node was installed.
-
-Close the terminal, open a new one, and try:
-
-```bat
-npm -v
+```text
+INSTAGRAM_APP_ID
+INSTAGRAM_APP_SECRET
 ```
 
-If it still fails, reinstall Node.js.
+Optional API-version override:
 
----
+```text
+INSTAGRAM_API_VERSION=v26.0
+```
 
-## Problem: PowerShell says `npm.ps1` cannot be loaded
+Token encryption also requires:
 
-Some Windows PowerShell configurations block script execution.
+```text
+TOKEN_ENCRYPTION_KEY=<a long private random value>
+```
 
-You do **not** need to change Windows security settings just to run Srocial.
+Never commit real values to GitHub.
 
-Use **Command Prompt** instead and run:
+### Example — PowerShell development session
 
-```bat
+Use your own values; the examples below are names, not credentials:
+
+```powershell
+$env:INSTAGRAM_APP_ID="YOUR_APP_ID"
+$env:INSTAGRAM_APP_SECRET="YOUR_APP_SECRET"
+$env:TOKEN_ENCRYPTION_KEY="YOUR_LONG_PRIVATE_ENCRYPTION_SECRET"
+$env:PUBLIC_BASE_URL="http://127.0.0.1:3000"
 npm start
 ```
 
-Or, from PowerShell, you can usually run:
-
-```powershell
-npm.cmd start
-```
-
-Tests can be run with:
-
-```powershell
-npm.cmd test
-```
-
----
-
-## Problem: `EADDRINUSE`
-
-Example:
-
-```text
-Error: listen EADDRINUSE
-```
-
-This means another program is already using port 3000.
-
-On Command Prompt:
+### Example — Command Prompt
 
 ```bat
-set PORT=3001
+set INSTAGRAM_APP_ID=YOUR_APP_ID
+set INSTAGRAM_APP_SECRET=YOUR_APP_SECRET
+set TOKEN_ENCRYPTION_KEY=YOUR_LONG_PRIVATE_ENCRYPTION_SECRET
+set PUBLIC_BASE_URL=http://127.0.0.1:3000
 npm start
 ```
 
-Then open:
+Your provider application must be configured to accept the exact OAuth callback URI used by Srocial. With the default local base URL, Srocial constructs:
 
 ```text
-http://127.0.0.1:3001
+http://127.0.0.1:3000/api/oauth/instagram/callback
 ```
 
----
+For a deployed installation, set `PUBLIC_BASE_URL` to the actual public base address and configure the matching callback in the provider application.
 
-## Problem: Browser says the page cannot be reached
+## 13. Connect Instagram with the current V6 API
 
-Check these things:
+A complete browser Accounts screen is the next UI stage. In V6, the OAuth backend works, but starting the connection is still an API action.
 
-1. Is the terminal still open?
-2. Did `npm start` show a Srocial listening message?
-3. Are you opening the correct address?
+With Instagram configuration present, send:
 
-Default:
+```http
+POST /api/oauth/instagram/start
+Content-Type: application/json
+
+{}
+```
+
+The response contains an `authorizationUrl`. Open that URL in your browser and complete the provider authorization.
+
+After authorization, the provider sends the browser to Srocial's callback endpoint. The current callback returns safe JSON account metadata. V7 will turn this into a normal dashboard redirect/connection screen.
+
+After a successful connection, reload the dashboard. The Instagram account should be available in the composer selector.
+
+## 14. Schedule an account-bound Instagram post
+
+Once the account is connected:
+
+1. Reload Srocial.
+2. Enter a caption.
+3. Check **Instagram**.
+4. Choose the connected Instagram account.
+5. Choose **Image** or **Video / Reel**.
+6. Enter an externally reachable HTTPS media URL.
+7. Choose a future publish time.
+8. Click **Schedule**.
+
+This creates:
 
 ```text
-http://127.0.0.1:3000
+Post
+  -> Media
+  -> Instagram Publication(accountId)
+  -> SOCIAL_PUBLICATION scheduler job
 ```
 
-If you changed the port, use the new port instead.
+At this point the record is scheduled, but it will still not be sent automatically while the production switches remain off.
 
----
+## 15. Enabling real scheduled publishing
 
-## Problem: Schedule button returns an error
+This is the important safety section.
 
-Make sure:
+Real recurring execution starts **only if both flags are true**:
 
-- the caption is not empty;
-- at least one social platform is selected;
-- the selected date and time are in the future.
+```text
+ALLOW_REAL_PUBLISH=true
+SCHEDULER_ENABLED=true
+```
 
-WhatsApp is not part of the social-post composer because WhatsApp Business will use a separate campaign and messaging workflow.
+For example in PowerShell:
 
----
+```powershell
+$env:ALLOW_REAL_PUBLISH="true"
+$env:SCHEDULER_ENABLED="true"
+$env:SCHEDULER_INTERVAL_MS="30000"
+npm start
+```
 
-## Problem: I Want to Delete All Local Test Data
+Do this only after:
+
+- the correct provider account is connected;
+- the media URL is valid and externally reachable;
+- the caption and schedule are correct;
+- you intend Srocial to call the real provider API.
+
+Setting only one flag is not enough; the recurring scheduler remains off.
+
+## 16. What the scheduler does
+
+When enabled, approximately every configured interval it:
+
+```text
+finds due jobs
+ -> atomically claims them
+ -> locks them to one worker
+ -> calls the correct provider adapter
+ -> stores the result
+ -> completes/retries/status-checks as required
+```
+
+The loop also refuses to start a second overlapping tick while the previous tick is still running.
+
+The underlying worker/repository layers still provide their own locking and idempotency guards.
+
+## 17. Common problems
+
+### `node` or `npm` is not recognized
+
+Install Node.js 20+ and open a new terminal.
+
+### `EADDRINUSE`
+
+Port 3000 is already being used. Start Srocial on another port, for example 3001.
+
+### All platform choices are disabled
+
+There are no connected accounts in Srocial yet. Configure/connect a provider account, then reload the dashboard.
+
+### Instagram OAuth start says `unsupported_provider`
+
+`INSTAGRAM_APP_ID` and/or `INSTAGRAM_APP_SECRET` are not configured in the running server process.
+
+### OAuth callback says `oauth_not_configured`
+
+`TOKEN_ENCRYPTION_KEY` is missing from the server process.
+
+### Schedule returns a destination/account error
+
+Check that:
+
+- the selected account still exists;
+- its state is `CONNECTED`;
+- its provider matches the selected platform.
+
+### Schedule returns a media error
+
+Check that the URL begins with `https://`, is syntactically valid, and points to media the provider can reach.
+
+### Real posting does not start
+
+Check both values:
+
+```text
+ALLOW_REAL_PUBLISH=true
+SCHEDULER_ENABLED=true
+```
+
+Also confirm the account/provider credentials are configured.
+
+## 18. Delete local development data
+
+To reset local state:
 
 1. Stop Srocial with `Ctrl + C`.
-2. Open the Srocial project folder.
-3. Open the `data` folder.
-4. Delete:
+2. Delete `data/srocial.json`.
+3. Start Srocial again.
 
-   ```text
-   srocial.json
-   ```
+A new empty development data file will be created.
 
-5. Run Srocial again:
+## 19. Updating later
 
-   ```bat
-   npm start
-   ```
-
-Srocial will create a new empty development data file.
-
----
-
-# Updating Srocial Later
-
-## If You Used Git Clone
-
-Inside the project folder run:
+If cloned with Git:
 
 ```bash
 git pull
 ```
 
-Then check `README.md` and this guide for any new setup steps.
+Then read `README.md` and `HOW_TO_RUN.md` for changes.
 
-If future versions add npm packages, you may also need:
+If downloaded as ZIP, download/extract the newer release into a new folder. Preserve any `data/srocial.json` you intentionally want to keep.
 
-```bash
-npm install
-```
-
-## If You Downloaded the ZIP
-
-The simplest beginner method is:
-
-1. download the latest ZIP again;
-2. extract it into a new folder;
-3. read this guide again before starting the newer version.
-
-Be careful not to accidentally delete development data you want to keep from the old `data/srocial.json` file.
-
----
-
-# Current Quick Start
-
-For someone who already installed Node.js, the complete current process is only:
+## Quick Start — Safe Mode
 
 ```text
-1. Download/extract Srocial.
-2. Open Command Prompt inside the Srocial folder.
-3. Run: npm start
-4. Open: http://127.0.0.1:3000
-5. Use the social-post composer.
-6. Press Ctrl + C when finished.
+1. Install Node.js 20+.
+2. Download/clone Srocial.
+3. Open a terminal in the project folder.
+4. Run: npm start
+5. Open: http://127.0.0.1:3000
+6. Keep ALLOW_REAL_PUBLISH=false.
+7. Keep SCHEDULER_ENABLED=false.
+8. Run npm test whenever you want to verify the project.
+9. Press Ctrl + C to stop.
 ```
 
-For the current development build, that is enough to run Srocial locally.
+That is the correct starting mode for a new user.
