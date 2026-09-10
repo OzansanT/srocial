@@ -16,10 +16,39 @@ const CONTENT_TYPES = Object.freeze({
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml'
 });
+const SAFE_OAUTH_ERROR_CODES = new Set([
+  'oauth_code_required',
+  'oauth_state_invalid',
+  'oauth_state_provider_mismatch',
+  'oauth_provider_error',
+  'oauth_not_configured'
+]);
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   response.end(JSON.stringify(payload));
+}
+
+function sendRedirect(response, location) {
+  response.writeHead(303, { location, 'cache-control': 'no-store' });
+  response.end();
+}
+
+function requestPrefersHtml(request) {
+  const accept = String(request.headers.accept ?? '').toLowerCase();
+  return accept.includes('text/html') && !accept.includes('application/json');
+}
+
+function oauthDashboardLocation(provider, { status, code = null }) {
+  const params = new URLSearchParams({
+    oauth: String(provider ?? '').trim().toLowerCase(),
+    status: status === 'connected' ? 'connected' : 'error'
+  });
+  if (status !== 'connected') {
+    const safeCode = SAFE_OAUTH_ERROR_CODES.has(code) ? code : 'oauth_provider_error';
+    params.set('code', safeCode);
+  }
+  return `/?${params.toString()}#accounts`;
 }
 
 function safeClientPath(pathname) {
@@ -91,8 +120,22 @@ export function createRequestHandler({ repository = null, now = () => new Date()
       const oauthCallback = url.pathname.match(/^\/api\/oauth\/([^/]+)\/callback$/);
       if (request.method === 'GET' && oauthCallback) {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
-        if (!tokenCipher) return sendJson(response, 503, { error: 'oauth_not_configured' });
-        const result = await completeOAuthPayload({ provider: decodeURIComponent(oauthCallback[1]), code: url.searchParams.get('code'), state: url.searchParams.get('state'), repository, providerRegistry: oauthProviderRegistry, cipher: tokenCipher, now: now() });
+        const provider = decodeURIComponent(oauthCallback[1]);
+        const browserNavigation = requestPrefersHtml(request);
+        if (!tokenCipher) {
+          if (browserNavigation) {
+            return sendRedirect(response, oauthDashboardLocation(provider, { status: 'error', code: 'oauth_not_configured' }));
+          }
+          return sendJson(response, 503, { error: 'oauth_not_configured' });
+        }
+        const result = await completeOAuthPayload({ provider, code: url.searchParams.get('code'), state: url.searchParams.get('state'), repository, providerRegistry: oauthProviderRegistry, cipher: tokenCipher, now: now() });
+        if (browserNavigation) {
+          const connected = result.statusCode >= 200 && result.statusCode < 300;
+          return sendRedirect(response, oauthDashboardLocation(provider, {
+            status: connected ? 'connected' : 'error',
+            code: connected ? null : result.payload?.error
+          }));
+        }
         return sendJson(response, result.statusCode, result.payload);
       }
 

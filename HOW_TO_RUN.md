@@ -1,119 +1,203 @@
 # How to Run Srocial — Beginner Guide
 
-This guide explains how to open the current Srocial project locally, test it safely, connect Instagram when you are ready, and understand the two switches that control real publishing.
+This guide explains how to run Srocial locally, connect Instagram from the browser, schedule account-bound content, and keep real publishing disabled until you intentionally enable it.
 
 ## 1. Install Node.js
 
 Srocial requires Node.js 20 or newer.
 
-Download the current LTS release from the official Node.js website and install it with the normal options. Then open a new Command Prompt/PowerShell/Terminal and check:
+After installing the current Node.js LTS release, open a new terminal and check:
 
 ```text
 node -v
 npm -v
 ```
 
-You should see version numbers. Node 20, 22, or newer is suitable.
+Node 20, 22, or newer is suitable.
 
-## 2. Get the project
+## 2. Get Srocial
 
-### Easiest: Download ZIP
+### Download ZIP
 
 1. Open the `OzansanT/srocial` repository on GitHub.
-2. Click **Code**.
-3. Click **Download ZIP**.
-4. Extract the ZIP.
-5. Open the extracted `srocial` folder.
+2. Click **Code** > **Download ZIP**.
+3. Extract the ZIP.
+4. Open the extracted `srocial` folder.
 
-### With Git
+### Git clone
 
 ```bash
 git clone https://github.com/OzansanT/srocial.git
 cd srocial
 ```
 
-The project folder should contain:
+## 3. Start in safe mode
 
-```text
-README.md
-HOW_TO_RUN.md
-package.json
-client/
-server/
-tests/
-```
+The current runtime has no external npm dependencies, so `npm install` is not required.
 
-## 3. No `npm install` is required right now
-
-The current runtime uses Node.js built-in modules and has no external npm dependency.
-
-You can therefore start directly with:
-
-```text
-npm start
-```
-
-## 4. Start Srocial safely
-
-Open a terminal inside the project folder and run:
+Run:
 
 ```bash
 npm start
 ```
 
-The default address is:
+Open:
 
 ```text
 http://127.0.0.1:3000
 ```
 
-Open that address in Chrome, Edge, Firefox, or Safari.
-
-The default configuration does **not** publish real content because both publishing switches are off:
+The default safety configuration is:
 
 ```text
 ALLOW_REAL_PUBLISH=false
 SCHEDULER_ENABLED=false
 ```
 
-Keep these defaults while learning or testing locally.
+Keep both values false while learning or testing. With these defaults, the recurring real-publish scheduler does not start.
 
-## 5. What you see in the V6 composer
+## 4. What V7 adds
 
-The composer now schedules **accounts**, not only platform names.
-
-A destination looks conceptually like:
+The dashboard now contains an **Accounts** section. Instagram can be managed from the browser with:
 
 ```text
-[ ] Instagram      [ @connected_account ▼ ]
+Connect Instagram
+Reconnect
+Disconnect
 ```
 
-If no connected account exists for a platform, its checkbox/select is disabled. This is intentional; Srocial will not guess which real account should publish a post.
+You no longer need to manually call the OAuth start API for normal browser use.
 
-The composer also contains:
+The composer still schedules a specific connected account rather than guessing an account from a platform name.
+
+## 5. Configure Instagram
+
+Before the **Connect Instagram** flow can work, the running server needs:
 
 ```text
-Caption
-Media type: Image / Video
-Media URL: https://...
-Publish time
+INSTAGRAM_APP_ID
+INSTAGRAM_APP_SECRET
+TOKEN_ENCRYPTION_KEY
+PUBLIC_BASE_URL
 ```
 
-The media URL must be HTTPS and must be reachable by the provider. Direct file upload is not implemented yet.
+Optional:
 
-## 6. Safe local test without connecting Instagram
+```text
+INSTAGRAM_API_VERSION=v26.0
+```
 
-The browser composer requires a connected account. If you only want to test the internal database/scheduler records without provider credentials, use the legacy development API.
+Never commit real values to GitHub.
 
-### Windows PowerShell
-
-Run Srocial in one terminal:
+### PowerShell example
 
 ```powershell
+$env:INSTAGRAM_APP_ID="YOUR_APP_ID"
+$env:INSTAGRAM_APP_SECRET="YOUR_APP_SECRET"
+$env:TOKEN_ENCRYPTION_KEY="YOUR_LONG_PRIVATE_ENCRYPTION_SECRET"
+$env:PUBLIC_BASE_URL="http://127.0.0.1:3000"
 npm start
 ```
 
-Open another PowerShell window inside the same project folder and run:
+### Command Prompt example
+
+```bat
+set INSTAGRAM_APP_ID=YOUR_APP_ID
+set INSTAGRAM_APP_SECRET=YOUR_APP_SECRET
+set TOKEN_ENCRYPTION_KEY=YOUR_LONG_PRIVATE_ENCRYPTION_SECRET
+set PUBLIC_BASE_URL=http://127.0.0.1:3000
+npm start
+```
+
+### macOS/Linux example
+
+```bash
+INSTAGRAM_APP_ID="YOUR_APP_ID" \
+INSTAGRAM_APP_SECRET="YOUR_APP_SECRET" \
+TOKEN_ENCRYPTION_KEY="YOUR_LONG_PRIVATE_ENCRYPTION_SECRET" \
+PUBLIC_BASE_URL="http://127.0.0.1:3000" \
+npm start
+```
+
+The current project does **not** automatically load a `.env` file through `dotenv`. Supply values through your shell/process or deployment environment.
+
+## 6. Configure the Instagram callback
+
+With the default local address, Srocial constructs this callback URI:
+
+```text
+http://127.0.0.1:3000/api/oauth/instagram/callback
+```
+
+Your Instagram/Meta application must allow the exact callback URI used by the running Srocial installation.
+
+For a deployed installation, set `PUBLIC_BASE_URL` to your actual public HTTPS Srocial base URL and configure the matching callback in the provider application.
+
+## 7. Connect Instagram from the dashboard
+
+1. Start Srocial with the Instagram environment variables configured.
+2. Open `http://127.0.0.1:3000`.
+3. Scroll to **Accounts**, or click **Accounts** in the sidebar.
+4. Click **Connect Instagram**.
+5. Complete the provider authorization.
+6. Instagram redirects back to the Srocial callback.
+7. Srocial exchanges the authorization result server-side, encrypts the token, and redirects you back to the **Accounts** section.
+8. The page displays a safe connection result and lists the connected account.
+
+The dashboard URL receives only safe values such as:
+
+```text
+?oauth=instagram&status=connected
+```
+
+or a sanitized error code such as:
+
+```text
+?oauth=instagram&status=error&code=oauth_state_invalid
+```
+
+Provider access tokens, authorization codes, OAuth state values, and raw provider errors are not copied into the dashboard URL.
+
+## 8. Reconnect or disconnect an account
+
+For an existing Instagram account:
+
+- **Reconnect** starts the Instagram OAuth flow again.
+- **Disconnect** clears stored credential material for that Srocial account and marks it `DISCONNECTED`.
+
+After a disconnect, the Accounts list and composer selectors refresh automatically. A disconnected account can no longer be selected for a new scheduled publication.
+
+## 9. Schedule an Instagram post
+
+Once Instagram is connected:
+
+1. Open **Create social post**.
+2. Enter a caption.
+3. Check **Instagram**.
+4. Choose the connected Instagram account.
+5. Choose **Image** or **Video / Reel**.
+6. Enter an externally reachable HTTPS media URL.
+7. Choose a future publish time.
+8. Click **Schedule**.
+
+Srocial creates:
+
+```text
+Post
+  -> Media
+  -> Instagram Publication(accountId)
+  -> SOCIAL_PUBLICATION scheduler job
+```
+
+The media URL must be HTTPS and reachable by Instagram. Direct file/object-storage upload is not implemented yet.
+
+## 10. Safe local scheduling without a real account
+
+The browser composer intentionally requires a connected account. For internal development testing only, the legacy API can create an unbound publication.
+
+### PowerShell
+
+With Srocial already running:
 
 ```powershell
 $body = @{
@@ -129,222 +213,18 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-This creates an **unbound development publication** with no real account attached. With the default safety flags it cannot be published automatically.
+This creates a publication with no real account binding. Do not use legacy unbound publications for real provider publishing.
 
-### macOS / Linux
+## 11. Enabling real scheduled publishing
 
-With Srocial running, open another terminal and use a future UTC date:
-
-```bash
-curl -X POST http://127.0.0.1:3000/api/posts \
-  -H 'content-type: application/json' \
-  -d '{
-    "caption":"My local Srocial test",
-    "platforms":["instagram"],
-    "scheduledAt":"2027-01-01T12:00:00.000Z"
-  }'
-```
-
-The date must be in the future when you run the command.
-
-## 7. Where local data is stored
-
-Development data is stored in:
-
-```text
-data/srocial.json
-```
-
-It can contain:
-
-```text
-posts
-media
-publications
-scheduler jobs
-accounts
-oauth states
-```
-
-Do not manually place real raw provider tokens in this file. Connected-account tokens are written by the server in encrypted form.
-
-## 8. Run automated tests
-
-From the project folder:
-
-```bash
-npm test
-```
-
-A successful run ends with zero failed tests.
-
-The repository also runs the test suite and JavaScript syntax checks automatically through GitHub Actions on build branches, pull requests, and `main`.
-
-## 9. Stop Srocial
-
-Return to the terminal running the server and press:
-
-```text
-Ctrl + C
-```
-
-Srocial stops its recurring scheduler timer, closes the HTTP server, and leaves your local JSON data on disk.
-
-## 10. Change the port
-
-### Windows Command Prompt
-
-```bat
-set PORT=3001
-npm start
-```
-
-### Windows PowerShell
-
-```powershell
-$env:PORT="3001"
-npm start
-```
-
-### macOS / Linux
-
-```bash
-PORT=3001 npm start
-```
-
-Then open:
-
-```text
-http://127.0.0.1:3001
-```
-
-## 11. Environment variables
-
-The repository contains `.env.example`, which documents supported settings.
-
-Important defaults:
-
-```text
-APP_ENV=development
-ALLOW_REAL_PUBLISH=false
-SCHEDULER_ENABLED=false
-SCHEDULER_INTERVAL_MS=30000
-HOST=127.0.0.1
-PORT=3000
-PUBLIC_BASE_URL=http://127.0.0.1:3000
-DATA_FILE=./data/srocial.json
-```
-
-The current project does **not** automatically read a `.env` file with a package such as `dotenv`. Set values in the shell/process environment or in your deployment environment.
-
-## 12. Instagram configuration
-
-The Instagram adapter is registered only when both of these values are supplied:
-
-```text
-INSTAGRAM_APP_ID
-INSTAGRAM_APP_SECRET
-```
-
-Optional API-version override:
-
-```text
-INSTAGRAM_API_VERSION=v26.0
-```
-
-Token encryption also requires:
-
-```text
-TOKEN_ENCRYPTION_KEY=<a long private random value>
-```
-
-Never commit real values to GitHub.
-
-### Example — PowerShell development session
-
-Use your own values; the examples below are names, not credentials:
-
-```powershell
-$env:INSTAGRAM_APP_ID="YOUR_APP_ID"
-$env:INSTAGRAM_APP_SECRET="YOUR_APP_SECRET"
-$env:TOKEN_ENCRYPTION_KEY="YOUR_LONG_PRIVATE_ENCRYPTION_SECRET"
-$env:PUBLIC_BASE_URL="http://127.0.0.1:3000"
-npm start
-```
-
-### Example — Command Prompt
-
-```bat
-set INSTAGRAM_APP_ID=YOUR_APP_ID
-set INSTAGRAM_APP_SECRET=YOUR_APP_SECRET
-set TOKEN_ENCRYPTION_KEY=YOUR_LONG_PRIVATE_ENCRYPTION_SECRET
-set PUBLIC_BASE_URL=http://127.0.0.1:3000
-npm start
-```
-
-Your provider application must be configured to accept the exact OAuth callback URI used by Srocial. With the default local base URL, Srocial constructs:
-
-```text
-http://127.0.0.1:3000/api/oauth/instagram/callback
-```
-
-For a deployed installation, set `PUBLIC_BASE_URL` to the actual public base address and configure the matching callback in the provider application.
-
-## 13. Connect Instagram with the current V6 API
-
-A complete browser Accounts screen is the next UI stage. In V6, the OAuth backend works, but starting the connection is still an API action.
-
-With Instagram configuration present, send:
-
-```http
-POST /api/oauth/instagram/start
-Content-Type: application/json
-
-{}
-```
-
-The response contains an `authorizationUrl`. Open that URL in your browser and complete the provider authorization.
-
-After authorization, the provider sends the browser to Srocial's callback endpoint. The current callback returns safe JSON account metadata. V7 will turn this into a normal dashboard redirect/connection screen.
-
-After a successful connection, reload the dashboard. The Instagram account should be available in the composer selector.
-
-## 14. Schedule an account-bound Instagram post
-
-Once the account is connected:
-
-1. Reload Srocial.
-2. Enter a caption.
-3. Check **Instagram**.
-4. Choose the connected Instagram account.
-5. Choose **Image** or **Video / Reel**.
-6. Enter an externally reachable HTTPS media URL.
-7. Choose a future publish time.
-8. Click **Schedule**.
-
-This creates:
-
-```text
-Post
-  -> Media
-  -> Instagram Publication(accountId)
-  -> SOCIAL_PUBLICATION scheduler job
-```
-
-At this point the record is scheduled, but it will still not be sent automatically while the production switches remain off.
-
-## 15. Enabling real scheduled publishing
-
-This is the important safety section.
-
-Real recurring execution starts **only if both flags are true**:
+Real recurring execution starts only when **both** flags are true:
 
 ```text
 ALLOW_REAL_PUBLISH=true
 SCHEDULER_ENABLED=true
 ```
 
-For example in PowerShell:
+Example PowerShell session:
 
 ```powershell
 $env:ALLOW_REAL_PUBLISH="true"
@@ -353,111 +233,163 @@ $env:SCHEDULER_INTERVAL_MS="30000"
 npm start
 ```
 
-Do this only after:
+Enable this only when:
 
-- the correct provider account is connected;
-- the media URL is valid and externally reachable;
+- the intended provider account is connected;
+- the media URL is correct and externally reachable;
 - the caption and schedule are correct;
 - you intend Srocial to call the real provider API.
 
-Setting only one flag is not enough; the recurring scheduler remains off.
+Setting only one flag is not enough.
 
-## 16. What the scheduler does
+## 12. What the scheduler does
 
-When enabled, approximately every configured interval it:
+When enabled, Srocial repeatedly performs:
 
 ```text
-finds due jobs
- -> atomically claims them
- -> locks them to one worker
- -> calls the correct provider adapter
- -> stores the result
- -> completes/retries/status-checks as required
+find due jobs
+ -> atomically claim
+ -> lock to one worker
+ -> dispatch to provider adapter
+ -> store provider result
+ -> complete / retry / status-check
 ```
 
-The loop also refuses to start a second overlapping tick while the previous tick is still running.
+The recurring loop refuses overlapping ticks. Repository locks and publication idempotency checks provide additional duplicate-publish protection.
 
-The underlying worker/repository layers still provide their own locking and idempotency guards.
+## 13. JSON OAuth API clients
 
-## 17. Common problems
+Normal browser OAuth callbacks redirect back to the dashboard.
 
-### `node` or `npm` is not recognized
+An API client that explicitly sends:
 
-Install Node.js 20+ and open a new terminal.
+```http
+Accept: application/json
+```
 
-### `EADDRINUSE`
+continues to receive the safe JSON callback response instead of the browser `303` redirect. This preserves the existing API contract for tests and programmatic clients.
 
-Port 3000 is already being used. Start Srocial on another port, for example 3001.
+## 14. Local data
 
-### All platform choices are disabled
+Development state is stored in:
 
-There are no connected accounts in Srocial yet. Configure/connect a provider account, then reload the dashboard.
+```text
+data/srocial.json
+```
 
-### Instagram OAuth start says `unsupported_provider`
+It can contain posts, media, publications, scheduler jobs, accounts, and OAuth-state records.
 
-`INSTAGRAM_APP_ID` and/or `INSTAGRAM_APP_SECRET` are not configured in the running server process.
+Do not manually insert raw provider credentials. Srocial stores connected-account token material encrypted.
 
-### OAuth callback says `oauth_not_configured`
+## 15. Run tests
 
-`TOKEN_ENCRYPTION_KEY` is missing from the server process.
+```bash
+npm test
+```
 
-### Schedule returns a destination/account error
+A successful run ends with zero failed tests.
 
-Check that:
+GitHub Actions also runs the full Node test suite and JavaScript syntax checks on build branches, pull requests, and `main`.
 
-- the selected account still exists;
-- its state is `CONNECTED`;
-- its provider matches the selected platform.
+## 16. Stop Srocial
+
+Press:
+
+```text
+Ctrl + C
+```
+
+The HTTP server and recurring scheduler timer stop cleanly. Local JSON data remains on disk.
+
+## 17. Change the port
+
+### Command Prompt
+
+```bat
+set PORT=3001
+npm start
+```
+
+### PowerShell
+
+```powershell
+$env:PORT="3001"
+npm start
+```
+
+### macOS/Linux
+
+```bash
+PORT=3001 npm start
+```
+
+Then open `http://127.0.0.1:3001` and update `PUBLIC_BASE_URL`/provider callback configuration to match if you are using OAuth.
+
+## 18. Common problems
+
+### All composer platforms are disabled
+
+No connected account exists for those providers. Use **Accounts > Connect Instagram** for Instagram.
+
+### Connect Instagram fails immediately
+
+Confirm `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` exist in the running process.
+
+### The page reports OAuth is not configured
+
+Set `TOKEN_ENCRYPTION_KEY` in the running server process.
+
+### OAuth returns an invalid/expired request message
+
+Start a fresh connection from **Accounts > Connect Instagram**. OAuth state is intentionally single-use and expires.
+
+### Instagram returns to the wrong URL
+
+Check that `PUBLIC_BASE_URL` and the callback URI configured in the provider application match exactly.
+
+### Schedule returns an account error
+
+Confirm the account is still `CONNECTED` and belongs to the selected platform.
 
 ### Schedule returns a media error
 
-Check that the URL begins with `https://`, is syntactically valid, and points to media the provider can reach.
+Confirm the URL starts with `https://` and is reachable by the provider.
 
 ### Real posting does not start
 
-Check both values:
+Confirm both values are true:
 
 ```text
 ALLOW_REAL_PUBLISH=true
 SCHEDULER_ENABLED=true
 ```
 
-Also confirm the account/provider credentials are configured.
+and that provider credentials are configured.
 
-## 18. Delete local development data
+### `EADDRINUSE`
 
-To reset local state:
+Another process is already using the selected port. Start Srocial on another port.
 
-1. Stop Srocial with `Ctrl + C`.
+## 19. Reset local development data
+
+1. Stop Srocial.
 2. Delete `data/srocial.json`.
 3. Start Srocial again.
 
-A new empty development data file will be created.
-
-## 19. Updating later
-
-If cloned with Git:
-
-```bash
-git pull
-```
-
-Then read `README.md` and `HOW_TO_RUN.md` for changes.
-
-If downloaded as ZIP, download/extract the newer release into a new folder. Preserve any `data/srocial.json` you intentionally want to keep.
+A new empty development data file is created.
 
 ## Quick Start — Safe Mode
 
 ```text
 1. Install Node.js 20+.
-2. Download/clone Srocial.
+2. Download or clone Srocial.
 3. Open a terminal in the project folder.
 4. Run: npm start
 5. Open: http://127.0.0.1:3000
 6. Keep ALLOW_REAL_PUBLISH=false.
 7. Keep SCHEDULER_ENABLED=false.
-8. Run npm test whenever you want to verify the project.
-9. Press Ctrl + C to stop.
+8. Configure Instagram credentials only when you want to test account connection.
+9. Use Accounts > Connect Instagram.
+10. Run npm test whenever you want to verify the project.
+11. Press Ctrl + C to stop.
 ```
-
-That is the correct starting mode for a new user.

@@ -1,5 +1,6 @@
 import { getDashboard, getHealth } from './api/dashboard-api.js';
 import { listPosts } from './api/posts-api.js';
+import { initializeAccounts } from './pages/accounts.js';
 import { initializeComposer } from './pages/composer.js';
 import { renderDashboard, renderScheduledPosts } from './pages/dashboard.js';
 
@@ -12,7 +13,9 @@ async function refreshPublishingData() {
 async function bootstrap() {
   const statusText = document.querySelector('#service-status');
   const statusDot = document.querySelector('.status-dot');
-  initializeComposer({ onScheduled: refreshPublishingData });
+  const composer = await initializeComposer({ onScheduled: refreshPublishingData });
+  await initializeAccounts({ onChanged: composer.refreshAccounts });
+
   try {
     const health = await getHealth();
     await refreshPublishingData();
