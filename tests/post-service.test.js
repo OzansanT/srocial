@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createScheduledPost } from '../server/services/post-service.js';
+import { JOB_STATES } from '../server/scheduler/job-states.js';
 
 function createRepository() {
   const records = { posts: [], publications: [], jobs: [] };
@@ -47,6 +48,6 @@ test('deduplicates platforms and creates one publication and job per platform', 
   assert.deepEqual(result.publications.map((item) => item.platform), ['instagram', 'threads']);
   assert.equal(result.jobs.length, 2);
   assert.ok(result.publications.every((item) => item.state === 'SCHEDULED'));
-  assert.ok(result.jobs.every((item) => item.type === 'SOCIAL_PUBLICATION' && item.state === 'SCHEDULED'));
+  assert.ok(result.jobs.every((item) => item.type === 'SOCIAL_PUBLICATION' && item.state === JOB_STATES.SCHEDULED));
   assert.ok(result.jobs.every((item) => item.publicationId));
 });
