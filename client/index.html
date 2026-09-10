@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Srocial social publishing and business messaging dashboard">
+  <title>Srocial Dashboard</title>
+  <link rel="stylesheet" href="/css/reset.css">
+  <link rel="stylesheet" href="/css/root.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/layout/app-shell.css">
+  <link rel="stylesheet" href="/css/components/sidebar.css">
+  <link rel="stylesheet" href="/css/components/button.css">
+  <link rel="stylesheet" href="/css/components/card.css">
+  <link rel="stylesheet" href="/css/pages/dashboard.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="Srocial dashboard">
+        <span class="brand__mark">S</span>
+        <span>Srocial</span>
+      </a>
+      <nav class="sidebar__nav">
+        <a class="sidebar__link sidebar__link--active" href="#dashboard">Dashboard</a>
+        <a class="sidebar__link" href="#calendar">Calendar</a>
+        <a class="sidebar__link" href="#create">Create</a>
+        <a class="sidebar__link" href="#accounts">Accounts</a>
+        <a class="sidebar__link" href="#contacts">Contacts</a>
+        <a class="sidebar__link" href="#queue">Queue</a>
+        <a class="sidebar__link" href="#logs">Logs</a>
+      </nav>
+      <div class="sidebar__footer">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="service-status">Checking service…</span>
+      </div>
+    </aside>
+
+    <main class="main-content" id="dashboard">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Publishing operations</p>
+          <h1>Dashboard</h1>
+          <p class="page-header__copy">Plan, publish and monitor every channel from one operational view.</p>
+        </div>
+        <button class="button button--primary" type="button">Create post</button>
+      </header>
+
+      <section class="metrics" aria-label="Publishing summary">
+        <article class="card metric-card"><span>Scheduled</span><strong data-count="scheduled">0</strong></article>
+        <article class="card metric-card"><span>Published</span><strong data-count="published">0</strong></article>
+        <article class="card metric-card"><span>Processing</span><strong data-count="processing">0</strong></article>
+        <article class="card metric-card"><span>Failed</span><strong data-count="failed">0</strong></article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="card panel">
+          <div class="panel__header">
+            <div><p class="eyebrow">Connections</p><h2>Channels</h2></div>
+            <button class="button button--secondary" type="button">Manage</button>
+          </div>
+          <div id="channel-list" class="channel-list" aria-live="polite"></div>
+        </article>
+
+        <article class="card panel">
+          <div class="panel__header"><div><p class="eyebrow">Queue</p><h2>Next actions</h2></div></div>
+          <div class="empty-state">
+            <span class="empty-state__icon">+</span>
+            <h3>No scheduled jobs yet</h3>
+            <p>Connected accounts and scheduled content will appear here.</p>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+.app-shell { min-height: 100vh; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+.main-content { width: min(100%, var(--content-max)); padding: var(--space-10); }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); margin-bottom: var(--space-8); }
+.page-header__copy { color: var(--color-text-muted); margin-top: var(--space-2); max-width: 42rem; }
+@media (max-width: 800px) {
+  .app-shell { display: block; }
+  .main-content { padding: var(--space-5); }
+  .page-header { align-items: stretch; flex-direction: column; }
+}
