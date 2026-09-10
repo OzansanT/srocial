@@ -1,23 +1,32 @@
 # Srocial
 
-Srocial is a self-hosted social media publishing, scheduling, monitoring, and business messaging dashboard.
+Srocial is a self-hosted social-media publishing, scheduling, monitoring, and business-messaging dashboard.
 
-The goal is to manage multiple platforms from one interface while keeping each platform integration isolated, replaceable, and easy for AI-assisted development to understand and modify.
+The project is designed around one scheduling system with isolated provider adapters so Instagram, Facebook, Threads, TikTok, and WhatsApp Business do not become five unrelated applications.
 
-## Purpose
+## Current Status
 
-Srocial is designed to provide one place to:
+The current runnable foundation supports:
 
-- Create and schedule social media posts.
-- Publish content automatically at the scheduled time.
-- Check whether each publication succeeded, failed, or is still processing.
-- Retry recoverable failures without creating duplicate posts.
-- Connect and manage multiple social accounts.
-- Store platform-specific captions and settings.
-- Track publication history and API errors.
-- Send scheduled WhatsApp Business campaigns.
-- Track WhatsApp message delivery states such as sent, delivered, read, and failed.
-- Later add analytics, approval workflows, inbox features, AI-assisted content, and automation rules.
+- a modular vanilla HTML/CSS/JavaScript dashboard;
+- a social-post composer for Instagram, Facebook, Threads, and TikTok destinations;
+- future-date scheduling with browser-local time converted to UTC;
+- persistent development storage in `data/srocial.json`;
+- one publication record and one scheduler job per selected social platform;
+- scheduled-post listing and dashboard publication counts;
+- `GET /api/health`, `GET /api/dashboard`, `GET /api/posts`, and `POST /api/posts`;
+- explicit publication/job states;
+- social-platform and messaging adapter contracts;
+- a PostgreSQL production-target schema in `server/db/migrations/001_initial.sql`;
+- automated Node tests.
+
+Real provider publishing is intentionally **not enabled yet**. The development default remains:
+
+```text
+ALLOW_REAL_PUBLISH=false
+```
+
+OAuth connections, media upload, provider publishing, webhook processing, and WhatsApp campaigns are subsequent implementation stages.
 
 ## Supported Channels
 
@@ -32,13 +41,9 @@ Srocial is designed to provide one place to:
 
 - WhatsApp Business Cloud API
 
-WhatsApp is intentionally treated differently from public social networks. Instagram, Facebook, Threads, and TikTok publish public content. WhatsApp sends business messages or campaigns to recipients and therefore requires separate contact, template, consent, delivery, and webhook logic.
+WhatsApp is intentionally separate from public social publishing. It will use contacts, consent, templates, campaigns, recipient-level message records, and delivery webhooks rather than a `publishPost()` abstraction.
 
-## Core Principle
-
-Srocial must not become five unrelated schedulers.
-
-There is one scheduling system and multiple adapters.
+## Architecture
 
 ```text
                          SROCIAL
@@ -50,152 +55,165 @@ There is one scheduling system and multiple adapters.
    +------+------+------+               WhatsApp Business
    |      |      |      |
    IG     FB   Threads  TikTok
-          |
-          +-----------------+
+          |                                   |
+          +-----------------+-----------------+
                             |
-                         SCHEDULER
+                       SCHEDULER
                             |
-                    QUEUE / WORKERS
+                     JOB / STATUS MODEL
                             |
-                  STATUS / WEBHOOKS
+                        REPOSITORY
                             |
-                        DATABASE
+              +-------------+-------------+
+              |                           |
+       JSON development             PostgreSQL target
+          storage                       schema
 ```
 
-## Recommended Technology Stack
+The scheduler decides **when** work is eligible. Workers and provider adapters will decide **how** external work is performed. Provider-specific endpoint details must not leak into the scheduler or frontend.
+
+## Technology
 
 ### Frontend
 
 - HTML
 - CSS
-- Vanilla JavaScript
+- vanilla JavaScript ES modules
 
-The frontend is intentionally framework-light. It should remain understandable without requiring a large frontend toolchain.
+The frontend stays framework-light and follows the CSS/JS modularity rules in `updaterules.md`.
 
 ### Backend
 
-- Node.js
-- Express
+- Node.js >= 20
+- built-in Node HTTP server for the current dependency-free MVP
 
-The backend owns OAuth, API secrets, access tokens, scheduling, publishing, webhooks, media operations, retries, and database access.
+A larger HTTP framework may be introduced later only when it materially reduces complexity. OAuth, secrets, tokens, scheduling, publishing, webhooks, media operations, retries, and database access remain server responsibilities.
 
 ### Data
 
-- PostgreSQL for persistent application data.
-- Redis + BullMQ may be introduced when queue volume requires it.
-- A simple database-backed scheduler can be used during the first MVP.
-
-### Media
-
-- Cloudflare R2 or another object-storage service for images and videos.
-
-### Deployment
-
-- Docker
-- Reverse proxy such as Nginx or Cloudflare
-- HTTPS required for production OAuth callbacks and webhooks
-
-## Security Boundary
-
-Secrets must never be stored in browser JavaScript.
+Current development runtime:
 
 ```text
-Browser
-   |
-   | authenticated request
-   v
-Srocial Node.js API
-   |
-   | protected credentials
-   v
-Meta / TikTok / WhatsApp APIs
+data/srocial.json
 ```
 
-The browser must never receive application secrets, raw long-lived credentials, refresh-token secrets, or other server-only credentials unless a platform flow explicitly requires a safe client-side value.
+This file is created automatically and is ignored by Git.
 
-Access and refresh tokens must be encrypted at rest where practical.
-
-## Application Areas
-
-The initial application should contain the following screens.
-
-### Dashboard
-
-Shows overall operational health:
-
-- scheduled publications
-- successful publications
-- processing publications
-- failures
-- next scheduled jobs
-- WhatsApp delivery summary
-
-### Calendar
-
-Shows scheduled social publications and WhatsApp campaigns by date and time.
-
-### Social Composer
-
-Creates a social post and selects one or more destinations.
-
-A post can contain a master caption plus platform-specific overrides.
+Production target:
 
 ```text
-Master caption
-  |- Instagram override
-  |- Facebook override
-  |- Threads override
-  `- TikTok override
+PostgreSQL
+server/db/migrations/001_initial.sql
 ```
 
-### WhatsApp Campaign Composer
+Redis/BullMQ may be added later when queue volume or multi-process execution requires a dedicated queue.
 
-Creates a WhatsApp campaign using:
+## Run Locally
 
-- business account
-- approved template
-- recipient list or segment
-- template variables
-- optional supported media
-- scheduled date/time
+Requirements:
 
-### Connected Accounts
+```text
+Node.js >= 20
+```
 
-Manages OAuth/account connections for supported platforms.
+Start Srocial:
 
-### Contacts and Lists
+```bash
+npm start
+```
 
-Stores WhatsApp recipients, lists, tags, segmentation data, and messaging eligibility/consent state.
+Default address:
 
-### WhatsApp Templates
+```text
+http://127.0.0.1:3000
+```
 
-Displays and later manages message templates and their approval state.
+Run tests:
 
-### Queue
+```bash
+npm test
+```
 
-Shows queued, processing, retrying, completed, and failed jobs.
+Optional development configuration can be copied from `.env.example`. Environment variables are read by the Node process; the repository does not include real secrets.
 
-### Logs
+Useful variables:
 
-Shows publication attempts, API responses, webhook events, retries, and useful diagnostic information without exposing secrets.
+```text
+APP_ENV=development
+ALLOW_REAL_PUBLISH=false
+HOST=127.0.0.1
+PORT=3000
+DATA_FILE=./data/srocial.json
+DATABASE_URL=postgres://...
+```
+
+## Scheduling API
+
+### Create a scheduled social post
+
+```http
+POST /api/posts
+Content-Type: application/json
+```
+
+```json
+{
+  "caption": "Scheduled content",
+  "platforms": ["instagram", "threads"],
+  "scheduledAt": "2026-09-11T10:00:00.000Z"
+}
+```
+
+Rules:
+
+- caption must not be empty;
+- at least one social platform is required;
+- allowed destinations are `instagram`, `facebook`, `threads`, and `tiktok`;
+- duplicate platform names are deduplicated;
+- WhatsApp is rejected by this endpoint because it is a messaging subsystem;
+- `scheduledAt` must represent a future time;
+- request bodies larger than 1 MiB are rejected.
+
+A successful request creates:
+
+```text
+1 post
+N publications
+N SOCIAL_PUBLICATION scheduler jobs
+```
+
+where `N` is the number of unique selected platforms.
+
+### List scheduled posts
+
+```http
+GET /api/posts
+```
+
+Returns posts in schedule order with their related publication records.
+
+### Dashboard summary
+
+```http
+GET /api/dashboard
+```
+
+Counts stored publication states and returns the configured channel list.
 
 ## Data Model
 
-A social post and a platform publication are not the same object.
-
-One post can succeed on one platform and fail on another.
+A post is not the same object as a platform publication.
 
 ```text
-Post #120
-  |- Instagram -> published
-  |- Facebook  -> published
-  |- Threads   -> failed
-  `- TikTok    -> processing
+Post
+  |- Instagram publication -> SCHEDULED
+  |- Facebook publication  -> SCHEDULED
+  `- Threads publication   -> SCHEDULED
 ```
 
-The database should therefore separate the content from each publication attempt.
+Each publication receives its own scheduler job. This allows one destination to eventually succeed, retry, or fail independently without corrupting the other destinations.
 
-### Core entities
+Core PostgreSQL entities are:
 
 ```text
 users
@@ -208,7 +226,7 @@ scheduler_jobs
 webhook_events
 ```
 
-### WhatsApp entities
+WhatsApp-oriented entities are:
 
 ```text
 contacts
@@ -222,21 +240,16 @@ whatsapp_messages
 
 ## Publication State Model
 
-A social publication should move through explicit states instead of using a single boolean such as `published=true`.
+Social publication states include:
 
 ```text
 DRAFT
-  -> SCHEDULED
-  -> QUEUED
-  -> UPLOADING
-  -> PROCESSING
-  -> PUBLISHING
-  -> PUBLISHED
-```
-
-Failure/recovery states may include:
-
-```text
+SCHEDULED
+QUEUED
+UPLOADING
+PROCESSING
+PUBLISHING
+PUBLISHED
 RETRYING
 RATE_LIMITED
 AUTH_ERROR
@@ -246,151 +259,39 @@ FAILED
 CANCELLED
 ```
 
-State transitions must be recorded so failures are diagnosable.
+The current scheduling workflow creates publications and jobs in `SCHEDULED`. It does not advance them into live publishing states yet.
 
-## WhatsApp Message State Model
-
-WhatsApp delivery is tracked per recipient, not only per campaign.
+WhatsApp delivery will be tracked per message/recipient with states such as:
 
 ```text
 QUEUED
-  -> SENT
-  -> DELIVERED
-  -> READ
-```
-
-Messages may also become:
-
-```text
-FAILED
+SENT
+DELIVERED
+READ
 RETRYING
+FAILED
 CANCELLED
 ```
 
-A campaign containing 1,000 recipients therefore contains up to 1,000 independently tracked message records.
+## Security Boundary
 
-## Platform Adapter Architecture
-
-Platform-specific API logic must not leak into the main scheduler or UI.
-
-Conceptually:
-
-```js
-class SocialPlatform {
-  connect() {}
-  refreshToken() {}
-  validatePost() {}
-  uploadMedia() {}
-  publish() {}
-  getStatus() {}
-}
-```
-
-Implementations:
+Provider secrets must never be placed in browser JavaScript, HTML, CSS, public JSON, localStorage, sessionStorage, or Git history.
 
 ```text
-InstagramAdapter
-FacebookAdapter
-ThreadsAdapter
-TikTokAdapter
-```
-
-WhatsApp uses a separate messaging abstraction because it is not a public-post platform.
-
-```js
-class MessagingPlatform {
-  connect() {}
-  getTemplates() {}
-  validateRecipient() {}
-  sendTemplate() {}
-  sendMessage() {}
-  sendMedia() {}
-  handleWebhook() {}
-  getMessageStatus() {}
-}
-```
-
-Implementation:
-
-```text
-WhatsAppBusinessAdapter
-```
-
-## Scheduler Architecture
-
-There must be one scheduling engine.
-
-Typical job types:
-
-```text
-SOCIAL_PUBLICATION
-WHATSAPP_CAMPAIGN
-STATUS_CHECK
-TOKEN_REFRESH
-RETRY_PUBLICATION
-```
-
-The scheduler determines what is due. Workers perform the actual operation.
-
-```text
-Scheduler
+Browser
    |
-   +-> Social Publication Worker
+   | internal Srocial API
+   v
+Node.js backend
    |
-   +-> WhatsApp Campaign Worker
-   |
-   +-> Status Check Worker
-   |
-   `-> Retry Worker
+   | protected credentials
+   v
+Meta / TikTok / WhatsApp APIs
 ```
 
-The scheduler must use locking/idempotency controls so concurrent workers cannot publish the same job twice.
+Real publishing must never be silently enabled from development configuration.
 
-## Webhooks
-
-Webhooks are first-class infrastructure, not an optional afterthought.
-
-They are used to receive asynchronous status changes and inbound events from supported APIs.
-
-Expected routes may include:
-
-```text
-/webhooks/meta
-/webhooks/whatsapp
-/webhooks/tiktok
-```
-
-Webhook processing should:
-
-1. verify the request when the provider supports verification/signatures;
-2. save or identify the event id where possible;
-3. reject or safely ignore duplicate events;
-4. update internal records;
-5. keep expensive processing outside the request path where appropriate.
-
-## Retry and Idempotency
-
-Not every failure should be retried.
-
-Recoverable examples:
-
-- rate limiting
-- temporary provider outage
-- media still processing
-- temporary network errors
-
-Non-recoverable examples:
-
-- unsupported media
-- invalid permissions
-- invalid recipient
-- permanently rejected content
-
-Retries must use controlled backoff and must never cause duplicate publication.
-
-## Initial Repository Direction
-
-The intended high-level structure is:
+## Repository Structure
 
 ```text
 srocial/
@@ -401,51 +302,40 @@ srocial/
 |  |- css/
 |  `- js/
 |- server/
+|  |- db/
+|  |  `- migrations/
+|  |- http/
 |  |- routes/
-|  |- platforms/
-|  |- messaging/
-|  |- scheduler/
-|  |- webhooks/
 |  |- services/
-|  `- db/
+|  |- scheduler/
+|  |- platforms/
+|  `- messaging/
 |- tests/
+|- docs/superpowers/
 |- .env.example
-|- package.json
-`- docker-compose.yml
+|- .gitignore
+`- package.json
 ```
 
-The exact structure may evolve, but changes must follow `updaterules.md`.
+## Development Direction
 
-## Development Priorities
+The next implementation priorities are:
 
-The first implementation stages should focus on foundation rather than trying to support every API immediately:
-
-1. project structure and shared UI system;
-2. backend bootstrap and configuration;
-3. database schema;
-4. scheduler/job model;
-5. account connection architecture;
-6. Instagram adapter as the first social implementation;
-7. Threads and Facebook adapters;
-8. TikTok adapter;
-9. WhatsApp Business messaging/campaign subsystem;
-10. status monitoring, retries, logs, and operational hardening.
-
-## Non-Goals for the Initial MVP
-
-To keep the first version maintainable, the MVP should not initially attempt to provide:
-
-- a full CRM;
-- a full omnichannel customer-support inbox;
-- deep social analytics;
-- AI-generated campaigns without human review;
-- browser automation that imitates clicking social-network websites;
-- unofficial APIs when an official supported API is available.
+1. scheduler execution and safe job locking/idempotency;
+2. account/OAuth connection architecture;
+3. Instagram as the first real social provider adapter;
+4. Threads and Facebook adapters;
+5. TikTok Content Posting integration;
+6. media storage and provider-specific media validation;
+7. webhook/status processing and retries;
+8. WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
+9. production PostgreSQL repository adapter;
+10. analytics and operational hardening.
 
 ## Development Rules
 
 All contributors and AI coding agents must read `updaterules.md` before modifying the project.
 
-`README.md` defines what Srocial is.
+`README.md` defines what Srocial is and its current implementation status.
 
 `updaterules.md` defines how Srocial is allowed to evolve.
