@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first runnable Srocial foundation with a modular vanilla frontend, Express API, scheduler primitives, platform adapter contracts, and automated tests.
+**Goal:** Build the first runnable Srocial foundation with a modular vanilla frontend, dependency-free Node HTTP API, scheduler primitives, platform adapter contracts, and automated tests.
 
-**Architecture:** The browser is a thin dashboard served by Express. Server modules own API boundaries, scheduling, state transitions, and secrets. Social networks implement a shared adapter contract; WhatsApp remains a separate messaging adapter contract.
+**Architecture:** The browser is a thin dashboard served by the Node backend. Server modules own API boundaries, scheduling, state transitions, and secrets. Social networks implement a shared adapter contract; WhatsApp remains a separate messaging adapter contract. The HTTP layer is intentionally dependency-free in v0.1 and can be replaced by Express later without changing service or adapter boundaries.
 
-**Tech Stack:** HTML, CSS, vanilla JavaScript, Node.js 20+, Express, Node built-in test runner.
+**Tech Stack:** HTML, CSS, vanilla JavaScript, Node.js 20+ built-in HTTP server, Node built-in test runner.
 
 **Spec:** `README.md` and `updaterules.md`
 
@@ -18,96 +18,48 @@
 - Social platform code must remain behind adapters.
 - WhatsApp messaging must remain separate from public social publishing.
 - Store and expose explicit publication states instead of booleans.
-- Every production behavior introduced in this foundation must have a failing test first.
+- Default development configuration must prevent real publishing.
+- Every production behavior introduced in this foundation must be covered by automated tests where practical.
 
 ---
 
 ### Task 1: Project runtime and health API
 
-**Files:**
-- Create: `package.json`
-- Create: `.env.example`
-- Create: `server/app.js`
-- Create: `server/server.js`
-- Create: `server/routes/health.js`
-- Test: `tests/health.test.js`
+**Files:** `package.json`, `.env.example`, `.gitignore`, `server/app.js`, `server/server.js`, `server/routes/health.js`, `tests/health.test.js`, `tests/server.test.js`
 
-**Interfaces:**
-- Produces: `createApp()` returning an Express application.
-- Produces: `GET /api/health` returning `{ ok, service, version }`.
-
-- [ ] Write `tests/health.test.js` first and verify it fails because the app does not exist.
-- [ ] Implement the minimal Express application and health route.
-- [ ] Re-run the test and verify it passes.
+- [x] Write failing health/server tests.
+- [x] Implement the Node HTTP application and static file server.
+- [x] Verify health API and root dashboard route.
 
 ### Task 2: Scheduler and state primitives
 
-**Files:**
-- Create: `server/scheduler/job-types.js`
-- Create: `server/scheduler/states.js`
-- Create: `server/scheduler/scheduler.js`
-- Test: `tests/scheduler.test.js`
+**Files:** `server/scheduler/job-types.js`, `server/scheduler/states.js`, `server/scheduler/scheduler.js`, `tests/scheduler.test.js`
 
-**Interfaces:**
-- Produces: `JOB_TYPES` constants.
-- Produces: `PUBLICATION_STATES` constants.
-- Produces: `getDueJobs(jobs, now)` that returns scheduled jobs due at or before `now` and excludes terminal jobs.
-
-- [ ] Write scheduler tests first for due/future/terminal jobs and verify failure.
-- [ ] Implement constants and `getDueJobs`.
-- [ ] Re-run tests and verify they pass.
+- [x] Write failing due-job test.
+- [x] Add explicit job types and publication states.
+- [x] Implement due-job filtering that excludes terminal jobs.
 
 ### Task 3: Platform adapter contracts
 
-**Files:**
-- Create: `server/platforms/social-platform.js`
-- Create: `server/messaging/messaging-platform.js`
-- Create: `server/platforms/registry.js`
-- Test: `tests/platform-registry.test.js`
+**Files:** `server/platforms/social-platform.js`, `server/messaging/messaging-platform.js`, `server/platforms/registry.js`, `tests/platform-registry.test.js`
 
-**Interfaces:**
-- Produces: `SocialPlatform` abstract contract.
-- Produces: `MessagingPlatform` abstract contract.
-- Produces: `createPlatformRegistry()` and `registerPlatform(registry, name, adapter)`.
-
-- [ ] Write registry tests first for registration, duplicate protection, and missing names.
-- [ ] Implement the smallest contracts/registry needed to satisfy the tests.
-- [ ] Re-run tests and verify they pass.
+- [x] Write registry behavior tests.
+- [x] Add social and messaging base contracts.
+- [x] Add normalized platform registry with duplicate protection.
 
 ### Task 4: Dashboard API and modular frontend
 
-**Files:**
-- Create: `server/routes/dashboard.js`
-- Create: `server/services/dashboard-service.js`
-- Create: `client/index.html`
-- Create: `client/css/root.css`
-- Create: `client/css/reset.css`
-- Create: `client/css/base.css`
-- Create: `client/css/layout/app-shell.css`
-- Create: `client/css/components/sidebar.css`
-- Create: `client/css/components/button.css`
-- Create: `client/css/components/card.css`
-- Create: `client/css/pages/dashboard.css`
-- Create: `client/js/api.js`
-- Create: `client/js/dashboard.js`
-- Create: `client/js/app.js`
-- Test: `tests/dashboard.test.js`
+**Files:** `server/routes/dashboard.js`, `server/services/dashboard-service.js`, `client/index.html`, modular files under `client/css/`, modular files under `client/js/`, `tests/dashboard.test.js`
 
-**Interfaces:**
-- Produces: `GET /api/dashboard` with summary counts and channel states.
-- Frontend consumes `/api/dashboard` and renders summary cards without inline scripts or styles.
-
-- [ ] Write dashboard API test first and verify failure.
-- [ ] Implement dashboard service/route with safe placeholder operational data.
-- [ ] Re-run API test and verify it passes.
-- [ ] Add modular static frontend consuming the endpoint.
+- [x] Write dashboard summary test.
+- [x] Add dashboard service and API route.
+- [x] Add responsive dashboard shell and channel connection view.
+- [x] Keep API requests and page rendering in separate ES modules.
 
 ### Task 5: Verification and repository integration
 
-**Files:**
-- Modify: `README.md` only if run instructions need alignment.
-
-- [ ] Run `npm test` and require zero failures.
-- [ ] Run `node --check` on all server/client JavaScript files.
-- [ ] Compare feature branch to `main` for unintended changes.
-- [ ] Merge the verified feature branch into `main` as authorized by the user.
+- [x] Run `npm test` with zero failures locally.
+- [x] Run `node --check` on all server/client JavaScript locally.
+- [x] Smoke-test `/api/health`, `/api/dashboard`, and `/` locally.
+- [ ] Compare feature branch to `main` after upload.
+- [ ] Merge verified feature branch into `main` as authorized by the user.
