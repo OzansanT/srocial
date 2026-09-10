@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { JOB_STATES } from '../scheduler/job-states.js';
 
 function clone(value) { return structuredClone(value); }
-function emptyData() { return { posts: [], publications: [], jobs: [] }; }
+function emptyData() { return { posts: [], publications: [], jobs: [], accounts: [], oauthStates: [] }; }
 
 export function createJsonRepository({ filePath }) {
   let data = emptyData();
@@ -56,7 +56,9 @@ export function createJsonRepository({ filePath }) {
         data = {
           posts: Array.isArray(parsed.posts) ? parsed.posts : [],
           publications: Array.isArray(parsed.publications) ? parsed.publications : [],
-          jobs: Array.isArray(parsed.jobs) ? parsed.jobs : []
+          jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
+          accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+          oauthStates: Array.isArray(parsed.oauthStates) ? parsed.oauthStates : []
         };
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
@@ -67,6 +69,33 @@ export function createJsonRepository({ filePath }) {
     createPost(record) { return mutate('posts', record); },
     createPublication(record) { return mutate('publications', record); },
     createJob(record) { return mutate('jobs', record); },
+    createAccount(record) { return mutate('accounts', record); },
+    createOAuthState(record) { return mutate('oauthStates', record); },
+    consumeOAuthState({ provider, stateHash, now = new Date() }) {
+      return enqueueMutation(() => {
+        const item = data.oauthStates.find((candidate) => candidate.provider === provider && candidate.stateHash === stateHash);
+        if (!item || item.consumedAt) return { status: 'invalid', record: null };
+        const nowMs = now.getTime();
+        const expiresMs = Date.parse(item.expiresAt);
+        if (!Number.isFinite(expiresMs) || expiresMs <= nowMs) return { status: 'expired', record: item };
+        item.consumedAt = now.toISOString();
+        return { status: 'ok', record: item };
+      });
+    },
+    getAccount(id) { return stableRead(() => data.accounts.find((item) => item.id === id) ?? null); },
+    listAccounts() { return stableRead(() => [...data.accounts]); },
+    disconnectAccount(id) {
+      return enqueueMutation(() => {
+        const item = data.accounts.find((candidate) => candidate.id === id);
+        if (!item) return null;
+        item.connected = false;
+        item.accessTokenEncrypted = null;
+        item.refreshTokenEncrypted = null;
+        item.tokenExpiresAt = null;
+        item.updatedAt = new Date().toISOString();
+        return item;
+      });
+    },
     updatePublication(id, patch) { return update('publications', id, patch); },
     updateJob(id, patch) { return update('jobs', id, patch); },
     getPost(id) { return stableRead(() => data.posts.find((item) => item.id === id) ?? null); },
