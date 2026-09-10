@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { JOB_STATES } from '../scheduler/job-states.js';
 
 function clone(value) { return structuredClone(value); }
-function emptyData() { return { posts: [], publications: [], jobs: [] }; }
+function emptyData() { return { posts: [], publications: [], jobs: [], accounts: [], oauthStates: [] }; }
 
 export function createJsonRepository({ filePath }) {
   let data = emptyData();
@@ -56,13 +56,32 @@ export function createJsonRepository({ filePath }) {
         data = {
           posts: Array.isArray(parsed.posts) ? parsed.posts : [],
           publications: Array.isArray(parsed.publications) ? parsed.publications : [],
-          jobs: Array.isArray(parsed.jobs) ? parsed.jobs : []
+          jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
+          accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+          oauthStates: Array.isArray(parsed.oauthStates) ? parsed.oauthStates : []
         };
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
         data = emptyData();
         await persist();
       }
+    },
+    createAccount(record) { return mutate('accounts', record); },
+    updateAccount(id, patch) { return update('accounts', id, patch); },
+    getAccount(id) { return stableRead(() => data.accounts.find((item) => item.id === id) ?? null); },
+    findAccountByProviderIdentity(provider, providerAccountId) { return stableRead(() => data.accounts.find((item) => item.provider === provider && item.providerAccountId === providerAccountId) ?? null); },
+    listAccounts() { return stableRead(() => [...data.accounts]); },
+    createOAuthState(record) { return mutate('oauthStates', record); },
+    getOAuthState(stateHash) { return stableRead(() => data.oauthStates.find((item) => item.stateHash === stateHash) ?? null); },
+    consumeOAuthState(stateHash, { now = new Date() } = {}) {
+      return enqueueMutation(() => {
+        const item = data.oauthStates.find((candidate) => candidate.stateHash === stateHash);
+        if (!item || item.consumedAt) return null;
+        const expiresMs = Date.parse(item.expiresAt ?? '');
+        if (!Number.isFinite(expiresMs) || expiresMs <= now.getTime()) return null;
+        item.consumedAt = now.toISOString();
+        return item;
+      });
     },
     createPost(record) { return mutate('posts', record); },
     createPublication(record) { return mutate('publications', record); },
@@ -83,10 +102,8 @@ export function createJsonRepository({ filePath }) {
           .filter((job) => {
             const scheduledMs = Date.parse(job.scheduledAt);
             if (!Number.isFinite(scheduledMs) || scheduledMs > nowMs) return false;
-
             if (job.state === JOB_STATES.SCHEDULED || job.state === JOB_STATES.RETRYING) return true;
             if (job.state !== JOB_STATES.RUNNING) return false;
-
             const lockedMs = Date.parse(job.lockedAt ?? '');
             return !Number.isFinite(lockedMs) || lockedMs <= staleBefore;
           })
@@ -104,9 +121,7 @@ export function createJsonRepository({ filePath }) {
         return eligible;
       });
     },
-    listJobs() {
-      return stableRead(() => [...data.jobs].sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt)));
-    },
+    listJobs() { return stableRead(() => [...data.jobs].sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt))); },
     listPostsWithPublications() {
       return stableRead(() => [...data.posts]
         .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt))
