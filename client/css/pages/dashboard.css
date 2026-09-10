@@ -9,7 +9,7 @@
 .channel-row__identity { display: grid; gap: 0.125rem; }
 .channel-row__type, .channel-row__status { color: var(--color-text-muted); font-size: 0.78rem; }
 .channel-row__status[data-connected="true"] { color: var(--color-success); }
-.empty-state { min-height: 15rem; display: grid; place-items: center; align-content: center; text-align: center; gap: var(--space-2); color: var(--color-text-muted); }
+.empty-state { min-height: 10rem; display: grid; place-items: center; align-content: center; text-align: center; gap: var(--space-2); color: var(--color-text-muted); }
 .empty-state__icon { width: 2.5rem; height: 2.5rem; border: 1px dashed var(--color-border); border-radius: 50%; display: grid; place-items: center; font-size: 1.25rem; }
 .empty-state h3 { color: var(--color-text); }
 @media (max-width: 1050px) { .metrics { grid-template-columns: repeat(2, 1fr); } .dashboard-grid { grid-template-columns: 1fr; } }

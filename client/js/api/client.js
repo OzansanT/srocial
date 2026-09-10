@@ -1,5 +1,14 @@
-export async function requestJson(path) {
-  const response = await fetch(path, { headers: { accept: 'application/json' } });
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-  return response.json();
+export async function requestJson(path, options = {}) {
+  const headers = new Headers(options.headers ?? {});
+  headers.set('accept', 'application/json');
+  const response = await fetch(path, { ...options, headers });
+  let payload = null;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (!response.ok) {
+    const error = new Error(`Request failed: ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
 }

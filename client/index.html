@@ -12,15 +12,14 @@
   <link rel="stylesheet" href="/css/components/sidebar.css">
   <link rel="stylesheet" href="/css/components/button.css">
   <link rel="stylesheet" href="/css/components/card.css">
+  <link rel="stylesheet" href="/css/components/form.css">
   <link rel="stylesheet" href="/css/pages/dashboard.css">
+  <link rel="stylesheet" href="/css/pages/composer.css">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Primary navigation">
-      <a class="brand" href="/" aria-label="Srocial dashboard">
-        <span class="brand__mark">S</span>
-        <span>Srocial</span>
-      </a>
+      <a class="brand" href="/" aria-label="Srocial dashboard"><span class="brand__mark">S</span><span>Srocial</span></a>
       <nav class="sidebar__nav">
         <a class="sidebar__link sidebar__link--active" href="#dashboard">Dashboard</a>
         <a class="sidebar__link" href="#calendar">Calendar</a>
@@ -30,20 +29,13 @@
         <a class="sidebar__link" href="#queue">Queue</a>
         <a class="sidebar__link" href="#logs">Logs</a>
       </nav>
-      <div class="sidebar__footer">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span id="service-status">Checking service…</span>
-      </div>
+      <div class="sidebar__footer"><span class="status-dot" aria-hidden="true"></span><span id="service-status">Checking service…</span></div>
     </aside>
 
     <main class="main-content" id="dashboard">
       <header class="page-header">
-        <div>
-          <p class="eyebrow">Publishing operations</p>
-          <h1>Dashboard</h1>
-          <p class="page-header__copy">Plan, publish and monitor every channel from one operational view.</p>
-        </div>
-        <button class="button button--primary" type="button">Create post</button>
+        <div><p class="eyebrow">Publishing operations</p><h1>Dashboard</h1><p class="page-header__copy">Plan, publish and monitor every channel from one operational view.</p></div>
+        <button class="button button--primary" id="focus-composer" type="button">Create post</button>
       </header>
 
       <section class="metrics" aria-label="Publishing summary">
@@ -55,21 +47,29 @@
 
       <section class="dashboard-grid">
         <article class="card panel">
-          <div class="panel__header">
-            <div><p class="eyebrow">Connections</p><h2>Channels</h2></div>
-            <button class="button button--secondary" type="button">Manage</button>
-          </div>
+          <div class="panel__header"><div><p class="eyebrow">Connections</p><h2>Channels</h2></div><button class="button button--secondary" type="button">Manage</button></div>
           <div id="channel-list" class="channel-list" aria-live="polite"></div>
         </article>
 
-        <article class="card panel">
-          <div class="panel__header"><div><p class="eyebrow">Queue</p><h2>Next actions</h2></div></div>
-          <div class="empty-state">
-            <span class="empty-state__icon">+</span>
-            <h3>No scheduled jobs yet</h3>
-            <p>Connected accounts and scheduled content will appear here.</p>
-          </div>
+        <article class="card panel" id="create">
+          <div class="panel__header"><div><p class="eyebrow">Scheduler</p><h2>Create social post</h2></div></div>
+          <form class="composer" id="social-composer">
+            <label class="field" for="post-caption"><span>Caption</span><textarea id="post-caption" name="caption" rows="5" maxlength="10000" required placeholder="Write the master caption…"></textarea></label>
+            <fieldset class="platform-picker"><legend>Platforms</legend>
+              <label><input type="checkbox" name="platform" value="instagram"> Instagram</label>
+              <label><input type="checkbox" name="platform" value="facebook"> Facebook</label>
+              <label><input type="checkbox" name="platform" value="threads"> Threads</label>
+              <label><input type="checkbox" name="platform" value="tiktok"> TikTok</label>
+            </fieldset>
+            <label class="field" for="scheduled-at"><span>Publish time</span><input id="scheduled-at" name="scheduledAt" type="datetime-local" required><small>Local browser time; Srocial stores the scheduled moment in UTC.</small></label>
+            <div class="composer__footer"><p class="form-feedback" id="composer-feedback" aria-live="polite"></p><button class="button button--primary" type="submit">Schedule</button></div>
+          </form>
         </article>
+      </section>
+
+      <section class="card panel scheduled-panel" id="queue">
+        <div class="panel__header"><div><p class="eyebrow">Queue</p><h2>Upcoming posts</h2></div><span class="scheduled-panel__count" id="scheduled-post-count">0 posts</span></div>
+        <div id="scheduled-post-list" class="scheduled-list" aria-live="polite"></div>
       </section>
     </main>
   </div>

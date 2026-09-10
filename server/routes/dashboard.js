@@ -1,5 +1,8 @@
 import { buildDashboardSummary } from '../services/dashboard-service.js';
 
-export function getDashboardPayload() {
-  return buildDashboardSummary();
+export async function getDashboardPayload(repository = null) {
+  if (!repository) return buildDashboardSummary();
+  const posts = await repository.listPostsWithPublications();
+  const publications = posts.flatMap((post) => post.publications ?? []);
+  return buildDashboardSummary(publications);
 }
