@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/css/components/form.css">
   <link rel="stylesheet" href="/css/pages/dashboard.css">
   <link rel="stylesheet" href="/css/pages/composer.css">
+  <link rel="stylesheet" href="/css/pages/accounts.css">
 </head>
 <body>
   <div class="app-shell">
@@ -47,7 +48,7 @@
 
       <section class="dashboard-grid">
         <article class="card panel">
-          <div class="panel__header"><div><p class="eyebrow">Connections</p><h2>Channels</h2></div><button class="button button--secondary" type="button">Manage</button></div>
+          <div class="panel__header"><div><p class="eyebrow">Connections</p><h2>Channels</h2></div><a class="button button--secondary" href="#accounts">Manage</a></div>
           <div id="channel-list" class="channel-list" aria-live="polite"></div>
         </article>
 
@@ -65,6 +66,12 @@
             <div class="composer__footer"><p class="form-feedback" id="composer-feedback" aria-live="polite"></p><button class="button button--primary" type="submit">Schedule</button></div>
           </form>
         </article>
+      </section>
+
+      <section class="card panel accounts-panel" id="accounts">
+        <div class="panel__header"><div><p class="eyebrow">Authorization</p><h2>Connected accounts</h2></div><span class="scheduled-panel__count" id="connected-account-count">0 connected</span></div>
+        <p class="accounts-note">OAuth credentials stay on the Srocial server. The browser receives connection status and safe account metadata only.</p>
+        <div class="account-provider-grid" id="account-provider-grid" aria-live="polite"></div>
       </section>
 
       <section class="card panel scheduled-panel" id="queue">
