@@ -395,7 +395,7 @@ The intended high-level structure is:
 ```text
 srocial/
 |- README.md
-|- UPDATERULES.md
+|- updaterules.md
 |- client/
 |  |- index.html
 |  |- css/
@@ -414,7 +414,7 @@ srocial/
 `- docker-compose.yml
 ```
 
-The exact structure may evolve, but changes must follow `UPDATERULES.md`.
+The exact structure may evolve, but changes must follow `updaterules.md`.
 
 ## Development Priorities
 
@@ -444,8 +444,8 @@ To keep the first version maintainable, the MVP should not initially attempt to 
 
 ## Development Rules
 
-All contributors and AI coding agents must read `UPDATERULES.md` before modifying the project.
+All contributors and AI coding agents must read `updaterules.md` before modifying the project.
 
 `README.md` defines what Srocial is.
 
-`UPDATERULES.md` defines how Srocial is allowed to evolve.
+`updaterules.md` defines how Srocial is allowed to evolve.
