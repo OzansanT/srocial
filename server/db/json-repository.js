@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { JOB_STATES } from '../scheduler/job-states.js';
 
 function clone(value) { return structuredClone(value); }
-function emptyData() { return { posts: [], publications: [], jobs: [], accounts: [], oauthStates: [] }; }
+function emptyData() { return { posts: [], publications: [], jobs: [], accounts: [], oauthStates: [], media: [] }; }
 
 export function createJsonRepository({ filePath }) {
   let data = emptyData();
@@ -58,7 +58,8 @@ export function createJsonRepository({ filePath }) {
           publications: Array.isArray(parsed.publications) ? parsed.publications : [],
           jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
           accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
-          oauthStates: Array.isArray(parsed.oauthStates) ? parsed.oauthStates : []
+          oauthStates: Array.isArray(parsed.oauthStates) ? parsed.oauthStates : [],
+          media: Array.isArray(parsed.media) ? parsed.media : []
         };
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
@@ -82,6 +83,12 @@ export function createJsonRepository({ filePath }) {
         item.consumedAt = now.toISOString();
         return item;
       });
+    },
+    createMedia(record) { return mutate('media', record); },
+    listMediaForPost(postId) {
+      return stableRead(() => data.media
+        .filter((item) => item.postId === postId)
+        .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0)));
     },
     createPost(record) { return mutate('posts', record); },
     createPublication(record) { return mutate('publications', record); },
