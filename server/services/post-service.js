@@ -1,5 +1,6 @@
 import { JOB_TYPES } from '../scheduler/job-types.js';
 import { PUBLICATION_STATES } from '../scheduler/states.js';
+import { JOB_STATES } from '../scheduler/job-states.js';
 
 export const SOCIAL_PLATFORMS = Object.freeze(['instagram', 'facebook', 'threads', 'tiktok']);
 const SOCIAL_PLATFORM_SET = new Set(SOCIAL_PLATFORMS);
@@ -54,7 +55,7 @@ export async function createScheduledPost(repository, input, { now = new Date() 
   for (const platform of validated.platforms) {
     const publication = await repository.createPublication({ postId: post.id, platform, state: PUBLICATION_STATES.SCHEDULED, scheduledAt: validated.scheduledAt, externalId: null, errorCode: null, createdAt: timestamp, updatedAt: timestamp });
     publications.push(publication);
-    const job = await repository.createJob({ type: JOB_TYPES.SOCIAL_PUBLICATION, publicationId: publication.id, campaignId: null, state: PUBLICATION_STATES.SCHEDULED, scheduledAt: validated.scheduledAt, attempts: 0, lockedAt: null, lockedBy: null, createdAt: timestamp, updatedAt: timestamp });
+    const job = await repository.createJob({ type: JOB_TYPES.SOCIAL_PUBLICATION, publicationId: publication.id, campaignId: null, state: JOB_STATES.SCHEDULED, scheduledAt: validated.scheduledAt, attempts: 0, lockedAt: null, lockedBy: null, createdAt: timestamp, updatedAt: timestamp });
     jobs.push(job);
   }
 

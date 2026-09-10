@@ -15,10 +15,18 @@ The current runnable foundation supports:
 - one publication record and one scheduler job per selected social platform;
 - scheduled-post listing and dashboard publication counts;
 - `GET /api/health`, `GET /api/dashboard`, `GET /api/posts`, and `POST /api/posts`;
-- explicit publication/job states;
+- explicit publication states and separate scheduler job states;
+- atomic due-job claiming in the JSON development repository;
+- stale scheduler-lock recovery;
+- sequential scheduler tick execution;
+- social-publication and provider-status workers;
+- idempotency guards that avoid republishing already provider-owned publications;
+- stable publication IDs passed to provider adapters as idempotency keys;
+- retry classification with bounded backoff;
+- asynchronous `STATUS_CHECK` jobs for providers that return `PROCESSING`;
 - social-platform and messaging adapter contracts;
-- a PostgreSQL production-target schema in `server/db/migrations/001_initial.sql`;
-- automated Node tests.
+- PostgreSQL production-target migrations under `server/db/migrations/`;
+- automated Node tests for scheduling, persistence, claiming, retries, worker dispatch, and HTTP behavior.
 
 Real provider publishing is intentionally **not enabled yet**. The development default remains:
 
@@ -26,7 +34,7 @@ Real provider publishing is intentionally **not enabled yet**. The development d
 ALLOW_REAL_PUBLISH=false
 ```
 
-OAuth connections, media upload, provider publishing, webhook processing, and WhatsApp campaigns are subsequent implementation stages.
+The scheduler execution primitive exists, but the server does not start a recurring live publication loop because real provider adapters and OAuth credentials are not connected yet.
 
 ## Supported Channels
 
@@ -60,17 +68,25 @@ WhatsApp is intentionally separate from public social publishing. It will use co
                             |
                        SCHEDULER
                             |
-                     JOB / STATUS MODEL
+                  CLAIM / LOCK / DISPATCH
                             |
-                        REPOSITORY
+              +-------------+-------------+
+              |                           |
+       Publication worker           Status worker
+              |                           |
+              +-------------+-------------+
+                            |
+                     Provider registry
+                            |
+                         REPOSITORY
                             |
               +-------------+-------------+
               |                           |
        JSON development             PostgreSQL target
-          storage                       schema
+          storage                    migrations
 ```
 
-The scheduler decides **when** work is eligible. Workers and provider adapters will decide **how** external work is performed. Provider-specific endpoint details must not leak into the scheduler or frontend.
+The scheduler decides **when** work is eligible and claims it. Workers decide **what** the job means. Provider adapters decide **how** an external provider is called. Provider endpoint details must not leak into the scheduler or frontend.
 
 ## Technology
 
@@ -104,6 +120,7 @@ Production target:
 ```text
 PostgreSQL
 server/db/migrations/001_initial.sql
+server/db/migrations/002_scheduler_execution.sql
 ```
 
 Redis/BullMQ may be added later when queue volume or multi-process execution requires a dedicated queue.
@@ -200,18 +217,116 @@ GET /api/dashboard
 
 Counts stored publication states and returns the configured channel list.
 
+## Scheduler Execution
+
+The execution primitive is:
+
+```js
+runSchedulerTick({
+  repository,
+  registry,
+  now,
+  workerId,
+  limit,
+  lockTimeoutMs
+})
+```
+
+A tick performs this flow:
+
+```text
+find due work
+   -> atomically claim jobs
+   -> mark RUNNING + worker lock
+   -> dispatch by job type
+   -> call provider adapter
+   -> persist publication outcome
+   -> complete, retry, or reschedule job
+```
+
+### Job states
+
+Scheduler jobs use their own state model:
+
+```text
+SCHEDULED
+RUNNING
+RETRYING
+COMPLETED
+FAILED
+CANCELLED
+```
+
+This is deliberately separate from publication states.
+
+### Claiming and stale locks
+
+`claimDueJobs()` claims eligible `SCHEDULED`/`RETRYING` jobs and can reclaim a stale `RUNNING` job after its lock timeout. A claimed job stores:
+
+```text
+state = RUNNING
+lockedAt
+lockedBy
+attempts += 1
+```
+
+The JSON repository serializes these mutations inside one Node process. The future PostgreSQL repository must provide the same contract with transaction-safe row locking.
+
+### Retry policy
+
+Default retry backoff is bounded:
+
+```text
+attempt 1 -> 1 minute
+attempt 2 -> 5 minutes
+attempt 3 -> 15 minutes
+attempt 4+ -> 60 minutes
+```
+
+Known transient failures such as network errors and rate limits retry. Authentication and unknown provider failures are permanent unless a provider adapter explicitly marks them retryable.
+
+### Asynchronous provider processing
+
+A provider adapter may return:
+
+```js
+{
+  status: 'PROCESSING',
+  externalId: 'provider-container-id'
+}
+```
+
+Srocial then completes the original publish job and creates a `STATUS_CHECK` job. The status worker can:
+
+- reschedule while the provider is still processing;
+- mark the publication `PUBLISHED` when ready;
+- mark the publication `FAILED` when the provider reports failure;
+- retry transient status lookup errors without republishing the original content.
+
+## Idempotency
+
+Before calling `publish()`, the worker checks the persisted publication state. Publications already in provider-owned/terminal states such as `PUBLISHED` or `PROCESSING` are not published again.
+
+Every publish call receives:
+
+```js
+{ idempotencyKey: publication.id }
+```
+
+Real provider adapters should use this stable identifier wherever the provider supports native idempotency. This mitigates the distributed-systems edge case where an external provider accepts a request but the Srocial process exits before persisting the response.
+
 ## Data Model
 
 A post is not the same object as a platform publication.
 
 ```text
 Post
-  |- Instagram publication -> SCHEDULED
-  |- Facebook publication  -> SCHEDULED
-  `- Threads publication   -> SCHEDULED
+  |- Instagram publication
+  |- Facebook publication
+  `- Threads publication
 ```
 
-Each publication receives its own scheduler job. This allows one destination to eventually succeed, retry, or fail independently without corrupting the other destinations.
+Each publication receives its own scheduler job. This allows one destination to succeed, process asynchronously, retry, or fail independently without corrupting the other destinations.
 
 Core PostgreSQL entities are:
 
@@ -259,7 +374,7 @@ FAILED
 CANCELLED
 ```
 
-The current scheduling workflow creates publications and jobs in `SCHEDULED`. It does not advance them into live publishing states yet.
+Publication state represents the external content lifecycle. Scheduler job state represents execution of internal work; the two are intentionally not interchangeable.
 
 WhatsApp delivery will be tracked per message/recipient with states such as:
 
@@ -298,9 +413,6 @@ srocial/
 |- README.md
 |- updaterules.md
 |- client/
-|  |- index.html
-|  |- css/
-|  `- js/
 |- server/
 |  |- db/
 |  |  `- migrations/
@@ -308,6 +420,8 @@ srocial/
 |  |- routes/
 |  |- services/
 |  |- scheduler/
+|  |  |- workers/
+|  |  `- run-scheduler-tick.js
 |  |- platforms/
 |  `- messaging/
 |- tests/
@@ -321,15 +435,15 @@ srocial/
 
 The next implementation priorities are:
 
-1. scheduler execution and safe job locking/idempotency;
-2. account/OAuth connection architecture;
-3. Instagram as the first real social provider adapter;
+1. account/OAuth connection architecture;
+2. Instagram as the first real social provider adapter;
+3. wire the recurring scheduler loop only after real adapters are registered and safely configured;
 4. Threads and Facebook adapters;
 5. TikTok Content Posting integration;
 6. media storage and provider-specific media validation;
-7. webhook/status processing and retries;
+7. webhook/status processing with real provider events;
 8. WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
-9. production PostgreSQL repository adapter;
+9. production PostgreSQL repository adapter using transaction-safe job claims;
 10. analytics and operational hardening.
 
 ## Development Rules
