@@ -6,6 +6,11 @@ export const SOCIAL_PLATFORMS = Object.freeze(['instagram', 'facebook', 'threads
 const SOCIAL_PLATFORM_SET = new Set(SOCIAL_PLATFORMS);
 const MEDIA_TYPES = new Set(['image', 'video']);
 const MAX_MEDIA = 10;
+const PROVIDER_MEDIA_CONTRACTS = Object.freeze({
+  instagram: Object.freeze({ label: 'Instagram', min: 1, max: 1 }),
+  facebook: Object.freeze({ label: 'Facebook', min: 0, max: 1 }),
+  threads: Object.freeze({ label: 'Threads', min: 0, max: 1 })
+});
 
 export class ValidationError extends Error {
   constructor(details) {
@@ -49,6 +54,17 @@ function normalizeMedia(media) {
   }));
 }
 
+function validateProviderMediaCounts(requestedPlatforms, mediaCount, details) {
+  for (const platform of new Set(requestedPlatforms)) {
+    const contract = PROVIDER_MEDIA_CONTRACTS[platform];
+    if (!contract || (mediaCount >= contract.min && mediaCount <= contract.max)) continue;
+    const message = contract.min === 1 && contract.max === 1
+      ? `${contract.label} currently requires exactly one media item.`
+      : `${contract.label} currently supports at most one media item.`;
+    details.push({ field: 'media', message });
+  }
+}
+
 function validateBaseInput(input, now, destinations, platforms, media) {
   const details = [];
   const caption = typeof input?.caption === 'string' ? input.caption.trim() : '';
@@ -75,6 +91,7 @@ function validateBaseInput(input, now, destinations, platforms, media) {
   if (media.length > MAX_MEDIA) {
     details.push({ field: 'media', message: `A post can contain at most ${MAX_MEDIA} media items.` });
   }
+  validateProviderMediaCounts(requestedPlatforms, media.length, details);
   for (const item of media) {
     if (!MEDIA_TYPES.has(item.type)) {
       details.push({ field: 'media', message: `Unsupported media type: ${item.type || 'empty'}.` });
