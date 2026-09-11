@@ -17,9 +17,8 @@ export function createAppAuth({ env = process.env, now = () => new Date() } = {}
       enabled: false,
       username: config.username,
       publicOrigin: config.publicOrigin,
-      login() {
-        return { statusCode: 503, payload: { error: 'auth_not_configured' } };
-      },
+      consumeLogin() { return { allowed: true, retryAfterSeconds: 0, remaining: config.loginRateLimit.max }; },
+      login() { return { statusCode: 503, payload: { error: 'auth_not_configured' } }; },
       readSession() { return null; },
       issueLogoutCookie() { return null; },
       consumeApi() { return { allowed: true, retryAfterSeconds: 0, remaining: config.apiRateLimit.max }; },
@@ -48,15 +47,11 @@ export function createAppAuth({ env = process.env, now = () => new Date() } = {}
     username: config.username,
     publicOrigin: config.publicOrigin,
 
-    login(request, credentials = {}) {
-      const limit = loginLimiter.consume(clientKey(request));
-      if (!limit.allowed) {
-        return {
-          statusCode: 429,
-          payload: { error: 'rate_limited' },
-          retryAfterSeconds: limit.retryAfterSeconds
-        };
-      }
+    consumeLogin(request) {
+      return loginLimiter.consume(clientKey(request));
+    },
+
+    login(credentials = {}) {
       if (!authenticator.authenticate(credentials?.username, credentials?.password)) {
         return { statusCode: 401, payload: { error: 'invalid_credentials' } };
       }
@@ -68,7 +63,8 @@ export function createAppAuth({ env = process.env, now = () => new Date() } = {}
     },
 
     readSession(request) {
-      return sessions.read(request?.headers?.cookie ?? '');
+      const session = sessions.read(request?.headers?.cookie ?? '');
+      return session?.username === config.username ? session : null;
     },
 
     issueLogoutCookie() {
