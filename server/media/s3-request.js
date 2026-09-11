@@ -36,7 +36,8 @@ export function createS3RequestClient({ region, accessKeyId, secretAccessKey, fe
         response = await fetchImpl(target, {
           method: String(method).toUpperCase(),
           headers: safeFetchHeaders(signedHeaders),
-          body
+          body,
+          redirect: 'manual'
         });
       } catch {
         throw new MediaStoreError('MEDIA_STORAGE_UNAVAILABLE');
