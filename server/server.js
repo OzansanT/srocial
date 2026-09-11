@@ -21,7 +21,8 @@ const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://${host}:${port}`;
 const mediaStore = createLocalMediaStore({
   rootDirectory: process.env.MEDIA_UPLOAD_DIR ?? './data/uploads',
   publicBaseUrl,
-  maxBytes: process.env.MEDIA_UPLOAD_MAX_BYTES ?? '52428800'
+  maxBytes: process.env.MEDIA_UPLOAD_MAX_BYTES ?? '52428800',
+  totalMaxBytes: process.env.MEDIA_UPLOAD_TOTAL_MAX_BYTES ?? '5368709120'
 });
 await mediaStore.initialize();
 
