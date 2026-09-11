@@ -1,5 +1,6 @@
 import { getOAuthProvider } from '../auth/oauth-provider-registry.js';
 import { consumeOAuthState, issueOAuthState } from '../auth/oauth-state-service.js';
+import { ensureTokenRefreshJob } from '../scheduler/token-refresh-schedule.js';
 import { upsertConnectedAccount } from './account-service.js';
 
 export async function startOAuthConnection({ provider, redirectUri, repository, providerRegistry, now = new Date() }) {
@@ -26,5 +27,10 @@ export async function completeOAuthConnection({ provider, code, state, repositor
     expiresAt: tokens.expiresAt ?? null,
     scopes: tokens.scopes ?? []
   }, { now });
+
+  if (typeof adapter.refreshAccessToken === 'function' && account.tokenExpiresAt) {
+    await ensureTokenRefreshJob(repository, account, { now });
+  }
+
   return { account };
 }
