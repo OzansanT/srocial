@@ -31,6 +31,32 @@ after(async () => {
 });
 
 
+test('PostgreSQL initialize refuses an unmigrated schema', async () => {
+  const fakePool = {
+    async query(sql) {
+      assert.match(sql, /to_regclass/);
+      return { rows: [{ table_name: 'accounts', regclass: null }] };
+    }
+  };
+  const repo = createPostgresRepository({ pool: fakePool });
+  await assert.rejects(() => repo.initialize(), /DATABASE_MIGRATIONS_REQUIRED/);
+});
+
+
+test('PostgreSQL health check executes a live query', async () => {
+  const queries = [];
+  const fakePool = {
+    async query(sql) {
+      queries.push(sql);
+      return { rows: [{ ok: 1 }] };
+    }
+  };
+  const repo = createPostgresRepository({ pool: fakePool });
+  assert.deepEqual(await repo.healthCheck(), { ok: true, backend: 'postgres' });
+  assert.deepEqual(queries, ['SELECT 1 AS ok']);
+});
+
+
 test('PostgreSQL repository verifies schema and reports healthy backend', { skip: !enabled }, async () => {
   await repository.initialize();
   assert.deepEqual(await repository.healthCheck(), { ok: true, backend: 'postgres' });
