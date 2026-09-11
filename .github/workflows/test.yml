@@ -22,6 +22,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+      - name: Install dependencies
+        run: npm install --ignore-scripts
       - name: Run tests
         run: npm test
       - name: Check JavaScript syntax
