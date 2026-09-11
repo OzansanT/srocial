@@ -132,11 +132,14 @@ export function createRequestHandler({ repository = null, now = () => new Date()
       const url = new URL(request.url, 'http://localhost');
 
       if (request.method === 'POST' && url.pathname === '/api/auth/login' && appAuth) {
+        const loginLimit = appAuth.consumeLogin(request);
+        if (!loginLimit.allowed) {
+          return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(loginLimit.retryAfterSeconds) });
+        }
         const body = await readJsonBody(request);
-        const result = appAuth.login(request, body);
+        const result = appAuth.login(body);
         const headers = {};
         if (result.setCookie) headers['set-cookie'] = result.setCookie;
-        if (result.retryAfterSeconds) headers['retry-after'] = String(result.retryAfterSeconds);
         return sendJson(response, result.statusCode, result.payload, headers);
       }
 
