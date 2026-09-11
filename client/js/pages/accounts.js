@@ -6,7 +6,12 @@ const PROVIDER_LABELS = Object.freeze({
   threads: 'Threads',
   tiktok: 'TikTok'
 });
-const OAUTH_ENABLED_PROVIDERS = new Set(['instagram']);
+const OAUTH_ENABLED_PROVIDERS = new Set(['instagram', 'facebook', 'threads']);
+const CONNECT_BUTTONS = Object.freeze({
+  instagram: '#connect-instagram',
+  facebook: '#connect-facebook',
+  threads: '#connect-threads'
+});
 const OAUTH_ERROR_MESSAGES = Object.freeze({
   oauth_code_required: 'The provider did not return an authorization code.',
   oauth_state_invalid: 'The connection request expired or was already used. Try connecting again.',
@@ -136,7 +141,6 @@ function validateAuthorizationUrl(value) {
 export async function initializeAccounts({ onChanged } = {}) {
   const list = document.querySelector('#account-list');
   const feedback = document.querySelector('#accounts-feedback');
-  const connectInstagram = document.querySelector('#connect-instagram');
   if (!list || !feedback) return { refresh: async () => {} };
 
   let accounts = [];
@@ -192,7 +196,10 @@ export async function initializeAccounts({ onChanged } = {}) {
     }
   }
 
-  connectInstagram?.addEventListener('click', () => connectProvider('instagram', connectInstagram));
+  for (const [provider, selector] of Object.entries(CONNECT_BUTTONS)) {
+    const button = document.querySelector(selector);
+    button?.addEventListener('click', () => connectProvider(provider, button));
+  }
 
   list.addEventListener('click', async (event) => {
     const button = event.target.closest('button[data-action]');

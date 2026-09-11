@@ -84,7 +84,7 @@
 
             <div class="media-grid">
               <label class="field" for="media-type"><span>Media type</span><select id="media-type" name="mediaType"><option value="image">Image</option><option value="video">Video / Reel</option></select></label>
-              <label class="field" for="media-url"><span>Media URL</span><input id="media-url" name="mediaUrl" type="url" inputmode="url" placeholder="https://cdn.example.com/post.jpg"><small>Optional globally; Instagram publishing requires provider-supported HTTPS media.</small></label>
+              <label class="field" for="media-url"><span>Media URL</span><input id="media-url" name="mediaUrl" type="url" inputmode="url" placeholder="https://cdn.example.com/post.jpg"><small>Optional globally; provider publishing requires provider-supported public HTTPS media.</small></label>
             </div>
 
             <label class="field" for="scheduled-at"><span>Publish time</span><input id="scheduled-at" name="scheduledAt" type="datetime-local" required><small>Local browser time; Srocial stores the scheduled moment in UTC.</small></label>
@@ -96,7 +96,11 @@
       <section class="card panel accounts-panel" id="accounts" aria-labelledby="accounts-title">
         <div class="panel__header">
           <div><p class="eyebrow">Connections</p><h2 id="accounts-title">Accounts</h2></div>
-          <button class="button button--primary" id="connect-instagram" type="button">Connect Instagram</button>
+          <div class="account-connect-actions" aria-label="Connect social accounts">
+            <button class="button button--primary" id="connect-instagram" type="button">Connect Instagram</button>
+            <button class="button button--secondary" id="connect-facebook" type="button">Connect Facebook</button>
+            <button class="button button--secondary" id="connect-threads" type="button">Connect Threads</button>
+          </div>
         </div>
         <p class="form-feedback" id="accounts-feedback" aria-live="polite"></p>
         <div id="account-list" class="account-list" aria-live="polite"></div>

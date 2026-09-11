@@ -5,8 +5,10 @@ import { createOAuthProviderRegistry } from './auth/oauth-provider-registry.js';
 import { createTokenCipher } from './auth/token-crypto.js';
 import { createRepositoryFromEnvironment } from './db/create-repository.js';
 import { createMediaStoreFromEnvironment } from './media/create-media-store.js';
-import { createPlatformRegistry } from './platforms/registry.js';
+import { registerFacebookProvider } from './platforms/facebook/index.js';
 import { registerInstagramProvider } from './platforms/instagram/index.js';
+import { createPlatformRegistry } from './platforms/registry.js';
+import { registerThreadsProvider } from './platforms/threads/index.js';
 import { runSchedulerTick } from './scheduler/run-scheduler-tick.js';
 import { startMediaRetentionLoop } from './scheduler/start-media-retention-loop.js';
 import { startSchedulerLoop } from './scheduler/start-scheduler-loop.js';
@@ -26,6 +28,8 @@ const mediaStore = createMediaStoreFromEnvironment({ env: runtimeEnv });
 await mediaStore.initialize();
 
 registerInstagramProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
+registerFacebookProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
+registerThreadsProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
 
 const schedulerLoop = startSchedulerLoop({
   enabled: process.env.SCHEDULER_ENABLED,
