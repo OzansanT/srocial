@@ -17,7 +17,6 @@ ${nextToken ? `<NextContinuationToken>${nextToken}</NextContinuationToken>` : ''
 
 function createFakeRequestClient({ pages = [listXml()], objects = new Map() } = {}) {
   const calls = [];
-  let pageIndex = 0;
   return {
     calls,
     client: {
@@ -25,8 +24,9 @@ function createFakeRequestClient({ pages = [listXml()], objects = new Map() } = 
         const target = new URL(url);
         calls.push({ method, url: target.toString(), headers: { ...headers }, body });
         if (method === 'GET' && target.searchParams.get('list-type') === '2') {
+          const continuationToken = target.searchParams.get('continuation-token');
+          const pageIndex = continuationToken ? 1 : 0;
           const xml = pages[Math.min(pageIndex, pages.length - 1)];
-          pageIndex += 1;
           return new Response(xml, { status: 200, headers: { 'content-type': 'application/xml' } });
         }
         const key = decodeURIComponent(target.pathname.split('/').slice(2).join('/'));
@@ -42,7 +42,7 @@ function createFakeRequestClient({ pages = [listXml()], objects = new Map() } = 
         }
         if (method === 'DELETE') {
           objects.delete(key);
-          return new Response('', { status: 204 });
+          return new Response(null, { status: 204 });
         }
         throw new Error(`unexpected request ${method} ${target}`);
       }
