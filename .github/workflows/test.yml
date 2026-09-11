@@ -30,6 +30,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      DATABASE_URL: postgres://srocial:srocial_test@127.0.0.1:5432/srocial_test
       TEST_POSTGRES_URL: postgres://srocial:srocial_test@127.0.0.1:5432/srocial_test
     steps:
       - name: Checkout
@@ -40,6 +41,8 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         run: npm install --ignore-scripts
+      - name: Migrate PostgreSQL
+        run: npm run db:migrate
       - name: Run tests
         run: npm test
       - name: Check JavaScript syntax
