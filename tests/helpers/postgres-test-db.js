@@ -18,7 +18,7 @@ export function hasPostgresTestDatabase() {
   return Boolean(postgresTestUrl());
 }
 
-export async function preparePostgresTestSchema(schema) {
+export async function prepareEmptyPostgresTestSchema(schema) {
   const connectionString = postgresTestUrl();
   if (!connectionString) throw new Error('TEST_POSTGRES_URL_REQUIRED');
   const safeSchema = validateSchemaName(schema);
@@ -29,8 +29,11 @@ export async function preparePostgresTestSchema(schema) {
   } finally {
     await admin.end();
   }
+  return new Pool({ connectionString, options: `-c search_path=${safeSchema}` });
+}
 
-  const pool = new Pool({ connectionString, options: `-c search_path=${safeSchema}` });
+export async function preparePostgresTestSchema(schema) {
+  const pool = await prepareEmptyPostgresTestSchema(schema);
   const files = (await readdir(migrationsDirectory)).filter((name) => name.endsWith('.sql')).sort();
   for (const name of files) {
     await pool.query(await readFile(`${migrationsDirectory}${name}`, 'utf8'));
