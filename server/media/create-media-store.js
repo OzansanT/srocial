@@ -5,15 +5,35 @@ import { createS3RequestClient } from './s3-request.js';
 const DEFAULT_MAX_BYTES = '52428800';
 const DEFAULT_TOTAL_MAX_BYTES = '5368709120';
 
+function isLoopbackHostname(hostname) {
+  const normalized = String(hostname ?? '').toLowerCase();
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '[::1]' || normalized === '::1';
+}
+
+function validateS3Endpoint(value) {
+  let endpoint;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new Error('MEDIA_S3_ENDPOINT_INVALID');
+  }
+
+  if (endpoint.protocol !== 'https:' && !(endpoint.protocol === 'http:' && isLoopbackHostname(endpoint.hostname))) {
+    throw new Error('MEDIA_S3_ENDPOINT_HTTPS_REQUIRED');
+  }
+  return endpoint.toString();
+}
+
 function requiredS3Config(env) {
   const values = {
     endpoint: String(env.MEDIA_S3_ENDPOINT ?? '').trim(),
     bucket: String(env.MEDIA_S3_BUCKET ?? '').trim(),
     accessKeyId: String(env.MEDIA_S3_ACCESS_KEY_ID ?? '').trim(),
-    secretAccessKey: String(env.MEDIA_S3_SECRET_ACCESS_KEY ?? ''),
+    secretAccessKey: String(env.MEDIA_S3_SECRET_ACCESS_KEY ?? '').trim(),
     publicBaseUrl: String(env.MEDIA_PUBLIC_BASE_URL ?? '').trim()
   };
   if (Object.values(values).some((value) => !value)) throw new Error('MEDIA_S3_CONFIG_REQUIRED');
+  values.endpoint = validateS3Endpoint(values.endpoint);
   return values;
 }
 
