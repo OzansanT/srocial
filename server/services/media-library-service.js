@@ -6,22 +6,11 @@ export class MediaLibraryError extends Error {
   }
 }
 
-function mediaKeyFromUrl(value) {
-  try {
-    const url = new URL(String(value ?? ''));
-    const match = url.pathname.match(/^\/media\/([^/]+)$/);
-    if (!match) return null;
-    return decodeURIComponent(match[1]);
-  } catch {
-    return null;
-  }
-}
-
-async function referencedKeys(repository) {
+export async function getReferencedMediaKeys(repository, mediaStore) {
   const records = await repository.listMedia();
   const keys = new Set();
   for (const record of records) {
-    const key = mediaKeyFromUrl(record?.url);
+    const key = mediaStore.keyFromUrl(record?.url);
     if (key) keys.add(key);
   }
   return keys;
@@ -31,7 +20,7 @@ export async function listMediaLibrary(repository, mediaStore) {
   const [assets, usage, referenced] = await Promise.all([
     mediaStore.list(),
     mediaStore.usage(),
-    referencedKeys(repository)
+    getReferencedMediaKeys(repository, mediaStore)
   ]);
   return {
     assets: assets.map((asset) => ({ ...asset, referenced: referenced.has(asset.key) })),
@@ -40,7 +29,7 @@ export async function listMediaLibrary(repository, mediaStore) {
 }
 
 export async function deleteMediaAsset(repository, mediaStore, key) {
-  const referenced = await referencedKeys(repository);
+  const referenced = await getReferencedMediaKeys(repository, mediaStore);
   if (referenced.has(String(key ?? ''))) throw new MediaLibraryError('MEDIA_IN_USE');
   await mediaStore.remove(key);
 }

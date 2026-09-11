@@ -26,6 +26,8 @@ const SAFE_OAUTH_ERROR_CODES = new Set([
 ]);
 const MEDIA_ERROR_RESPONSES = Object.freeze({
   UNSUPPORTED_MEDIA_TYPE: { statusCode: 415, error: 'unsupported_media_type' },
+  MEDIA_SIGNATURE_MISMATCH: { statusCode: 415, error: 'media_signature_mismatch' },
+  INVALID_MEDIA_SIGNATURE: { statusCode: 415, error: 'invalid_media_signature' },
   EMPTY_MEDIA: { statusCode: 400, error: 'empty_media' },
   MEDIA_TOO_LARGE: { statusCode: 413, error: 'media_too_large' },
   MEDIA_STORAGE_QUOTA_EXCEEDED: { statusCode: 507, error: 'media_storage_quota_exceeded' },
