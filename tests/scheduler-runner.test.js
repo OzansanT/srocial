@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createJsonRepository } from '../server/db/json-repository.js';
+import { createTokenCipher } from '../server/auth/token-crypto.js';
 import { JOB_STATES } from '../server/scheduler/job-states.js';
 import { JOB_TYPES } from '../server/scheduler/job-types.js';
 import { PUBLICATION_STATES } from '../server/scheduler/states.js';
@@ -83,6 +84,50 @@ test('scheduler tick dispatches status-check jobs to getStatus', async () => {
     assert.equal(publishCalls, 0);
     assert.equal(statusCalls, 1);
     assert.equal((await repository.getPublication(publication.id)).externalId, 'ig-status');
+  });
+});
+
+test('scheduler tick dispatches TOKEN_REFRESH through OAuth registry and token cipher', async () => {
+  await withRepository(async (repository) => {
+    const cipher = createTokenCipher('scheduler token refresh secret');
+    const account = await repository.createAccount({
+      provider:'instagram', providerAccountId:'ig-refresh', displayName:'Refresh', username:'refresh',
+      state:'CONNECTED', scopes:['publish'], accessTokenEncrypted:cipher.encrypt('old-token'), refreshTokenEncrypted:null,
+      tokenExpiresAt:'2026-09-20T12:00:00.000Z', connectedAt:'2026-08-01T12:00:00.000Z', disconnectedAt:null,
+      lastErrorCode:null, createdAt:'2026-08-01T12:00:00.000Z', updatedAt:'2026-09-01T12:00:00.000Z'
+    });
+    await repository.createJob({
+      type:JOB_TYPES.TOKEN_REFRESH, publicationId:null, campaignId:null, accountId:account.id,
+      state:JOB_STATES.SCHEDULED, scheduledAt:'2026-09-11T11:59:00.000Z', attempts:0,
+      lockedAt:null, lockedBy:null, errorCode:null, createdAt:'2026-09-01T12:00:00.000Z', updatedAt:'2026-09-01T12:00:00.000Z'
+    });
+    let refreshCalls = 0;
+    const oauthRegistry = new Map([['instagram', {
+      async refreshAccessToken({ accessToken }) {
+        refreshCalls += 1;
+        assert.equal(accessToken, 'old-token');
+        return { accessToken:'fresh-token', expiresAt:'2026-11-10T12:00:00.000Z' };
+      }
+    }]]);
+
+    const result = await runSchedulerTick({
+      repository,
+      registry:new Map(),
+      oauthRegistry,
+      tokenCipher:cipher,
+      now:new Date('2026-09-11T12:00:00.000Z'),
+      workerId:'refresh-runner'
+    });
+
+    assert.equal(result.claimed, 1);
+    assert.equal(result.rescheduled, 1);
+    assert.equal(result.failed, 0);
+    assert.equal(refreshCalls, 1);
+    const storedAccount = await repository.getAccount(account.id);
+    assert.equal(cipher.decrypt(storedAccount.accessTokenEncrypted), 'fresh-token');
+    const refreshJob = (await repository.listJobs()).find((job) => job.type === JOB_TYPES.TOKEN_REFRESH);
+    assert.equal(refreshJob.state, JOB_STATES.SCHEDULED);
+    assert.equal(refreshJob.scheduledAt, '2026-10-11T12:00:00.000Z');
   });
 });
 
