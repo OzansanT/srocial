@@ -4,17 +4,19 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, and bu
 
 The project uses one scheduling engine with isolated provider adapters. Instagram, Facebook, Threads, TikTok, and WhatsApp Business therefore do not become five unrelated applications. WhatsApp remains a separate messaging/campaign subsystem rather than a public-post adapter.
 
-## Current Status — V13
+## Current Status — V14
 
 The runnable foundation includes:
 
 - vanilla HTML/CSS/JavaScript dashboard, Accounts panel, Media Library, and account-bound composer;
 - provider-neutral Accounts/OAuth infrastructure;
-- browser Instagram Connect, Reconnect, and Disconnect controls;
+- browser Instagram, Facebook Pages, and Threads Connect / Reconnect / Disconnect controls;
 - encrypted provider-token persistence with AES-256-GCM;
 - one-time hashed OAuth state with expiry/replay protection;
 - Instagram professional-account OAuth plus single-image/Reel publishing and status flows;
-- automatic long-lived Instagram access-token refresh through account-bound `TOKEN_REFRESH` scheduler jobs;
+- Facebook Pages OAuth plus deterministic Page-token resolution, text/image/Reel publishing, and Reel status flows;
+- Threads OAuth plus text/image/video container publishing and status flows;
+- automatic long-lived Instagram and Threads access-token refresh through account-bound `TOKEN_REFRESH` scheduler jobs;
 - refresh retry, expiry/error state handling, deduplication, and reconnect-race protection;
 - direct JPEG/PNG/WebP/MP4 uploads with byte-signature validation;
 - Media Library preview, reuse, URL copy, reference-protected deletion, usage reporting, and total-storage quota;
@@ -53,8 +55,8 @@ For any network/public deployment, enable application authentication and use HTT
 | Channel | Current state |
 | --- | --- |
 | Instagram | browser account management + OAuth + automatic long-lived token refresh + account identity + image/Reel publish/status adapter |
-| Facebook Pages | scheduling model ready; provider adapter not implemented |
-| Threads | scheduling model ready; provider adapter not implemented |
+| Facebook Pages | browser account management + OAuth + Page access-token resolution + text/image/Reel publish/status adapter |
+| Threads | browser account management + OAuth + automatic long-lived token refresh + text/image/video publish/status adapter |
 | TikTok | scheduling model ready; provider adapter not implemented |
 | WhatsApp Business | planned separate messaging/campaign subsystem |
 
@@ -65,7 +67,7 @@ Browser
   |
   +--> Admin login --> signed HttpOnly session
   |
-  +--> Accounts UI --> OAuth --> Instagram
+  +--> Accounts UI --> OAuth --> Instagram / Facebook Pages / Threads
   |
   +--> Media Library <--> Media Store (local | S3-compatible)
   |
@@ -143,7 +145,7 @@ Run tests:
 npm test
 ```
 
-See `HOW_TO_RUN.md` for the beginner-oriented guide, authentication setup, and PostgreSQL setup steps. See `docs/V12_MEDIA_STORAGE.md` for media-storage configuration and `docs/V13_INSTAGRAM_TOKEN_REFRESH.md` for token-refresh behavior.
+See `HOW_TO_RUN.md` for the beginner-oriented guide, authentication setup, and PostgreSQL setup steps. See `docs/V12_MEDIA_STORAGE.md` for media-storage configuration, `docs/V13_INSTAGRAM_TOKEN_REFRESH.md` for token-refresh behavior, and `docs/V14_META_PROVIDERS.md` for Facebook Pages and Threads setup/behavior.
 
 ## Environment
 
@@ -188,6 +190,13 @@ TOKEN_ENCRYPTION_KEY=<long-random-secret>
 INSTAGRAM_APP_ID=
 INSTAGRAM_APP_SECRET=
 INSTAGRAM_API_VERSION=v26.0
+FACEBOOK_APP_ID=
+FACEBOOK_APP_SECRET=
+FACEBOOK_API_VERSION=v26.0
+FACEBOOK_PAGE_ID=
+THREADS_APP_ID=
+THREADS_APP_SECRET=
+THREADS_API_VERSION=v1.0
 ```
 
 Srocial does not automatically load `.env` files. Supply environment values through the shell, process manager, container, or deployment environment.
@@ -323,18 +332,20 @@ During process shutdown, Srocial stops the scheduler and media-retention loop, c
 
 ## Accounts and OAuth
 
-The dashboard currently supports Instagram:
+The dashboard currently supports browser account management for:
 
 ```text
 Connect Instagram
+Connect Facebook
+Connect Threads
 Reconnect
 Disconnect
 ```
 
-Connect/Reconnect starts:
+Connect/Reconnect starts the provider-neutral route:
 
 ```text
-POST /api/oauth/instagram/start
+POST /api/oauth/:provider/start
 ```
 
 When application auth is enabled, OAuth **start** requires the Srocial administrator session. The provider callback remains public:
@@ -345,7 +356,9 @@ GET /api/oauth/:provider/callback
 
 Browser callbacks redirect back toward the Accounts section using only sanitized Srocial result codes. If the browser no longer has a valid Srocial application session, the redirected dashboard request goes to the login page.
 
-After a successful Instagram connection, V13 schedules one account-bound long-lived token refresh job when an expiry is available. Scheduled/retrying refresh jobs are reused on reconnect; running refresh jobs are protected against stale-result overwrite.
+Instagram and Threads connections that return token expiry metadata schedule account-bound long-lived token refresh work through the existing scheduler. Scheduled/retrying refresh jobs are reused on reconnect; running refresh jobs are protected against stale-result overwrite.
+
+For Facebook Pages, `FACEBOOK_PAGE_ID` makes Page selection deterministic. Without it, Srocial auto-selects only if the authenticating Meta user returns exactly one eligible managed Page; multiple Pages fail closed with `PAGE_SELECTION_REQUIRED`.
 
 ## Scheduling API
 
@@ -385,6 +398,8 @@ Generic media rules:
 - URLs must be HTTPS for scheduling;
 - at most 10 media records per post at the generic layer;
 - provider adapters may impose stricter rules.
+
+V14 Facebook Pages and Threads adapters accept at most one media item per publication. See `docs/V14_META_PROVIDERS.md` for provider-specific behavior.
 
 ## HTTP Surface
 
@@ -463,7 +478,7 @@ FAILED
 CANCELLED
 ```
 
-Default retry delays are 1 minute, 5 minutes, 15 minutes, then 60 minutes thereafter. Provider `PROCESSING` results use status-check jobs rather than republishing original content. V13 token refresh uses the same scheduler and retry policy rather than introducing a second timer subsystem.
+Default retry delays are 1 minute, 5 minutes, 15 minutes, then 60 minutes thereafter. Provider `PROCESSING` results use status-check jobs rather than republishing original content. Instagram and Threads token refresh use the same scheduler and retry policy rather than introducing provider-specific timer subsystems.
 
 ## Data Model
 
@@ -492,7 +507,7 @@ npm test
 find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-Coverage includes PostgreSQL migrations/persistence/concurrency; application authentication and same-origin controls; V12 local/S3 media storage, signature validation, quotas, deletion/reference protection, and retention cleanup; and V13 Instagram refresh HTTP normalization, refresh scheduling/deduplication, encrypted worker execution, retry/expiry handling, reconnect-race protection, and scheduler dispatch.
+Coverage includes PostgreSQL migrations/persistence/concurrency; application authentication and same-origin controls; V12 local/S3 media storage, signature validation, quotas, deletion/reference protection, and retention cleanup; V13 Instagram refresh HTTP normalization, refresh scheduling/deduplication, encrypted worker execution, retry/expiry handling, reconnect-race protection, and scheduler dispatch; and V14 Facebook/Threads config, OAuth/token flows, provider HTTP normalization, publishing/status transitions, credential isolation, account registration, and Accounts UI behavior.
 
 ## Repository Structure
 
@@ -513,7 +528,10 @@ srocial/
 |  |- routes/
 |  |- services/
 |  |- scheduler/
-|  `- platforms/instagram/
+|  `- platforms/
+|     |- instagram/
+|     |- facebook/
+|     `- threads/
 |- tests/
 |- docs/superpowers/
 |- .env.example
@@ -524,12 +542,11 @@ srocial/
 
 Next priorities:
 
-1. implement Facebook Pages and Threads provider adapters;
-2. implement TikTok OAuth and Content Posting;
-3. add real provider webhook processing and provider-health/rate-limit visibility;
-4. implement WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
-5. add calendar/queue operational controls, drafts, edit/cancel/retry controls, and analytics;
-6. if multi-user access becomes necessary, design database-backed identities, roles, session revocation, and proxy-aware distributed rate limiting as a separate security project.
+1. implement TikTok OAuth and Content Posting;
+2. add real provider webhook processing and provider-health/rate-limit visibility;
+3. implement WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
+4. add calendar/queue operational controls, drafts, edit/cancel/retry controls, and analytics;
+5. if multi-user access becomes necessary, design database-backed identities, roles, session revocation, and proxy-aware distributed rate limiting as a separate security project.
 
 ## Development Rules
 
