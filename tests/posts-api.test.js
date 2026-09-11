@@ -28,7 +28,7 @@ async function withServer(run) {
 
 test('creates and lists a scheduled post', async () => {
   await withServer(async (base) => {
-    const create = await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Hello', platforms: ['instagram', 'threads'], scheduledAt: '2026-09-11T10:00:00.000Z' }) });
+    const create = await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Hello', platforms: ['facebook', 'threads'], scheduledAt: '2026-09-11T10:00:00.000Z' }) });
     assert.equal(create.status, 201);
     const created = await create.json();
     assert.equal(created.publications.length, 2);
@@ -60,7 +60,7 @@ test('returns invalid_json for malformed JSON', async () => {
 
 test('dashboard counts stored scheduled publications', async () => {
   await withServer(async (base) => {
-    await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Count me', platforms: ['instagram', 'facebook'], scheduledAt: '2026-09-11T12:00:00.000Z' }) });
+    await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Count me', platforms: ['facebook', 'threads'], scheduledAt: '2026-09-11T12:00:00.000Z' }) });
     const response = await fetch(`${base}/api/dashboard`);
     const payload = await response.json();
     assert.equal(payload.counts.scheduled, 2);
