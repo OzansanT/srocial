@@ -1,6 +1,6 @@
 # How to Run Srocial — Beginner Guide
 
-This guide explains how to run Srocial locally, connect Instagram from the browser, schedule account-bound content, and keep real publishing disabled until you intentionally enable it.
+This guide explains how to run Srocial locally, connect Instagram from the browser, schedule account-bound content, manage uploaded media, and keep real publishing disabled until you intentionally enable it.
 
 ## 1. Install Node.js
 
@@ -56,9 +56,9 @@ SCHEDULER_ENABLED=false
 
 Keep both values false while learning or testing. With these defaults, the recurring real-publish scheduler does not start.
 
-## 4. What V8 includes
+## 4. What V9 includes
 
-The dashboard now contains an **Accounts** section. Instagram can be managed from the browser with:
+The dashboard contains an **Accounts** section. Instagram can be managed from the browser with:
 
 ```text
 Connect Instagram
@@ -66,11 +66,11 @@ Reconnect
 Disconnect
 ```
 
-You no longer need to manually call the OAuth start API for normal browser use.
+The composer schedules a specific connected account rather than guessing an account from a platform name.
 
-The composer still schedules a specific connected account rather than guessing an account from a platform name.
+You can upload JPEG, PNG, WebP, or MP4 media from the composer. The default per-file limit is 50 MiB. A successful upload fills the media URL and type automatically; you can still paste an existing HTTPS media URL instead.
 
-V8 also adds **Upload media** in the composer. Select a JPEG, PNG, WebP, or MP4 file and click **Upload file**. The default limit is 50 MiB. A successful upload fills the media URL and type for you; you can still paste an existing HTTPS media URL instead.
+V9 adds a **Media Library**. Uploaded files can be previewed, copied, reused in the composer, and deleted when they are not referenced by a persisted post. The library also shows current storage usage. The default total local-media quota is 5 GiB.
 
 ## 5. Configure Instagram
 
@@ -178,7 +178,7 @@ Once Instagram is connected:
 3. Check **Instagram**.
 4. Choose the connected Instagram account.
 5. Under **Upload media**, select a file and click **Upload file**. Wait for the result. The media URL and type are filled automatically.
-6. Alternatively, choose **Image** or **Video / Reel** and paste an externally reachable HTTPS media URL.
+6. Alternatively, open **Media** and click **Use in composer** on an existing asset, or paste an externally reachable HTTPS media URL.
 7. Choose a future publish time.
 8. Click **Schedule**.
 
@@ -195,7 +195,47 @@ The media URL must be HTTPS and reachable by Instagram. A local HTTP upload show
 
 Uploads are accessible to anyone with their link. Upload only media you intend to make public. The development app has no login or upload authorization: before public deployment, protect the dashboard and `/api/` with authenticated access and request limits; keep `/media/` retrievable by the provider.
 
-## 10. Safe local scheduling without a real account
+## 10. Manage the Media Library
+
+Open **Media** in the sidebar. The library shows uploaded assets and storage usage.
+
+Available actions:
+
+- **Use in composer** fills the composer's media URL and type without scheduling anything.
+- **Copy URL** copies the public media URL when browser clipboard access is available.
+- **Delete** removes an unused uploaded asset.
+- **Refresh** reloads the inventory and storage usage.
+
+A file referenced by any persisted post is marked **In use** and cannot be deleted. The server enforces this protection even if the UI is bypassed. Deleting an unreferenced file is permanent.
+
+The library inventory comes from the configured upload directory. It does not expose local file-system paths.
+
+## 11. Configure media limits
+
+Default media settings are:
+
+```text
+MEDIA_UPLOAD_DIR=./data/uploads
+MEDIA_UPLOAD_MAX_BYTES=52428800
+MEDIA_UPLOAD_TOTAL_MAX_BYTES=5368709120
+```
+
+`MEDIA_UPLOAD_MAX_BYTES` is the per-file limit (`52428800` = 50 MiB).
+
+`MEDIA_UPLOAD_TOTAL_MAX_BYTES` is the total local-media quota (`5368709120` = 5 GiB). When an upload would exceed the total quota, Srocial rejects it and removes its partial file.
+
+PowerShell example:
+
+```powershell
+$env:MEDIA_UPLOAD_DIR="./data/uploads"
+$env:MEDIA_UPLOAD_MAX_BYTES="104857600"
+$env:MEDIA_UPLOAD_TOTAL_MAX_BYTES="10737418240"
+npm start
+```
+
+That example allows up to 100 MiB per file and 10 GiB total. Use the environment-variable syntax from section 5 for other shells. Editing `.env.example` alone does not configure the running server.
+
+## 12. Safe local scheduling without a real account
 
 The browser composer intentionally requires a connected account. For internal development testing only, the legacy API can create an unbound publication.
 
@@ -219,7 +259,7 @@ Invoke-RestMethod `
 
 This creates a publication with no real account binding. Do not use legacy unbound publications for real provider publishing.
 
-## 11. Enabling real scheduled publishing
+## 13. Enabling real scheduled publishing
 
 Real recurring execution starts only when **both** flags are true:
 
@@ -246,7 +286,7 @@ Enable this only when:
 
 Setting only one flag is not enough.
 
-## 12. What the scheduler does
+## 14. What the scheduler does
 
 When enabled, Srocial repeatedly performs:
 
@@ -261,7 +301,7 @@ find due jobs
 
 The recurring loop refuses overlapping ticks. Repository locks and publication idempotency checks provide additional duplicate-publish protection.
 
-## 13. JSON OAuth API clients
+## 15. JSON OAuth API clients
 
 Normal browser OAuth callbacks redirect back to the dashboard.
 
@@ -273,7 +313,7 @@ Accept: application/json
 
 continues to receive the safe JSON callback response instead of the browser `303` redirect. This preserves the existing API contract for tests and programmatic clients.
 
-## 14. Local data
+## 16. Local data
 
 Development state is stored in:
 
@@ -283,21 +323,11 @@ data/srocial.json
 
 It can contain posts, media, publications, scheduler jobs, accounts, and OAuth-state records.
 
-Uploaded files are stored separately in `data/uploads/`. Keep and back up both locations. Uploads remain even if you do not schedule a post; V8 has no deletion UI or total disk quota. Deleting a file breaks its published URL.
-
-To change upload storage or the per-file limit, stop the server and set these variables before restarting. Example in PowerShell:
-
-```powershell
-$env:MEDIA_UPLOAD_DIR="./data/uploads"
-$env:MEDIA_UPLOAD_MAX_BYTES="52428800"
-npm start
-```
-
-The limit is in bytes (`52428800` = 50 MiB). Use the environment-variable syntax in section 5 for other shells. Editing `.env.example` alone does not configure the running server.
+Uploaded files are stored separately in `data/uploads/`. Keep and back up both locations. The Media Library can delete unused uploaded files, but it deliberately refuses to delete a file referenced by a persisted post.
 
 Do not manually insert raw provider credentials. Srocial stores connected-account token material encrypted.
 
-## 15. Run tests
+## 17. Run tests
 
 ```bash
 npm test
@@ -307,7 +337,7 @@ A successful run ends with zero failed tests.
 
 GitHub Actions also runs the full Node test suite and JavaScript syntax checks on build branches, pull requests, and `main`.
 
-## 16. Stop Srocial
+## 18. Stop Srocial
 
 Press:
 
@@ -315,9 +345,9 @@ Press:
 Ctrl + C
 ```
 
-The HTTP server and recurring scheduler timer stop cleanly. Local JSON data remains on disk.
+The HTTP server and recurring scheduler timer stop cleanly. Local JSON data and uploaded media remain on disk.
 
-## 17. Change the port
+## 19. Change the port
 
 ### Command Prompt
 
@@ -341,7 +371,7 @@ PORT=3001 npm start
 
 Then open `http://127.0.0.1:3001` and update `PUBLIC_BASE_URL`/provider callback configuration to match if you are using OAuth.
 
-## 18. Common problems
+## 20. Common problems
 
 ### All composer platforms are disabled
 
@@ -373,7 +403,11 @@ Confirm the URL starts with `https://` and is reachable by the provider.
 
 ### Upload fails
 
-Select a nonempty JPEG, PNG, WebP, or MP4 file. If it is too large, choose a smaller file or change `MEDIA_UPLOAD_MAX_BYTES` and restart. For storage failures, ensure `MEDIA_UPLOAD_DIR` is writable and the disk has space. Your previous media URL stays in the form after an upload failure.
+Select a nonempty JPEG, PNG, WebP, or MP4 file. If it is too large, choose a smaller file or change `MEDIA_UPLOAD_MAX_BYTES` and restart. If storage is full, delete unused assets from **Media** or increase `MEDIA_UPLOAD_TOTAL_MAX_BYTES`. For other storage failures, ensure `MEDIA_UPLOAD_DIR` is writable and the disk has space. Your previous media URL stays in the form after an upload failure.
+
+### Media cannot be deleted
+
+If the asset is marked **In use**, at least one persisted post references it. Srocial intentionally refuses the deletion to avoid breaking scheduled or historical post media.
 
 ### Real posting does not start
 
@@ -390,13 +424,14 @@ and that provider credentials are configured.
 
 Another process is already using the selected port. Start Srocial on another port.
 
-## 19. Reset local development data
+## 21. Reset local development data
 
 1. Stop Srocial.
-2. Delete `data/srocial.json`.
-3. Start Srocial again.
+2. Delete `data/srocial.json` if you want to reset post/account development records.
+3. Delete `data/uploads/` only if you also want to erase all uploaded media.
+4. Start Srocial again.
 
-A new empty development data file is created.
+A new empty development data file and upload directory are created as needed.
 
 ## Quick Start — Safe Mode
 
@@ -410,6 +445,7 @@ A new empty development data file is created.
 7. Keep SCHEDULER_ENABLED=false.
 8. Configure Instagram credentials only when you want to test account connection.
 9. Use Accounts > Connect Instagram.
-10. Run npm test whenever you want to verify the project.
-11. Press Ctrl + C to stop.
+10. Use Media to reuse or safely delete uploaded assets.
+11. Run npm test whenever you want to verify the project.
+12. Press Ctrl + C to stop.
 ```
