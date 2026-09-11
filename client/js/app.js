@@ -36,10 +36,10 @@ async function initializeSessionControls() {
     logoutButton.disabled = true;
     try {
       await logout();
+      window.location.replace('/login.html');
     } catch (error) {
       console.error('Logout failed', { status: error?.status ?? null });
-    } finally {
-      window.location.replace('/login.html');
+      logoutButton.disabled = false;
     }
   });
 }
