@@ -4,6 +4,8 @@ import { executeJob } from './job-dispatcher.js';
 export async function runSchedulerTick({
   repository,
   registry,
+  oauthRegistry,
+  tokenCipher,
   now = new Date(),
   workerId,
   limit = 10,
@@ -15,7 +17,7 @@ export async function runSchedulerTick({
 
   for (const job of claimedJobs) {
     try {
-      results.push(await executeJob({ job, repository, registry, now, retryPolicy }));
+      results.push(await executeJob({ job, repository, registry, oauthRegistry, tokenCipher, now, retryPolicy }));
     } catch (error) {
       await repository.updateJob(job.id, {
         state: JOB_STATES.FAILED,

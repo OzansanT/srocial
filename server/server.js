@@ -32,6 +32,8 @@ const schedulerLoop = startSchedulerLoop({
   allowRealPublish: process.env.ALLOW_REAL_PUBLISH,
   repository,
   registry: platformRegistry,
+  oauthRegistry: oauthProviderRegistry,
+  tokenCipher,
   intervalMs: process.env.SCHEDULER_INTERVAL_MS,
   tick: runSchedulerTick
 });

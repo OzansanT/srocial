@@ -4,7 +4,7 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, and bu
 
 The project uses one scheduling engine with isolated provider adapters. Instagram, Facebook, Threads, TikTok, and WhatsApp Business therefore do not become five unrelated applications. WhatsApp remains a separate messaging/campaign subsystem rather than a public-post adapter.
 
-## Current Status — V11
+## Current Status — V13
 
 The runnable foundation includes:
 
@@ -14,9 +14,13 @@ The runnable foundation includes:
 - encrypted provider-token persistence with AES-256-GCM;
 - one-time hashed OAuth state with expiry/replay protection;
 - Instagram professional-account OAuth plus single-image/Reel publishing and status flows;
-- direct JPEG/PNG/WebP/MP4 uploads with streamed local storage;
+- automatic long-lived Instagram access-token refresh through account-bound `TOKEN_REFRESH` scheduler jobs;
+- refresh retry, expiry/error state handling, deduplication, and reconnect-race protection;
+- direct JPEG/PNG/WebP/MP4 uploads with byte-signature validation;
 - Media Library preview, reuse, URL copy, reference-protected deletion, usage reporting, and total-storage quota;
-- scheduler jobs with stale-lock recovery, retries, status checks, and idempotency guards;
+- local media storage plus an S3-compatible object-storage driver using AWS Signature Version 4;
+- opt-in bounded orphan-media retention cleanup;
+- scheduler jobs with stale-lock recovery, retries, status checks, token refresh, and idempotency guards;
 - JSON development persistence;
 - PostgreSQL production persistence with transaction-safe concurrent scheduler claims;
 - explicit checksum-verified PostgreSQL migrations;
@@ -34,7 +38,7 @@ ALLOW_REAL_PUBLISH=false
 SCHEDULER_ENABLED=false
 ```
 
-Real scheduled publishing starts only when **both** are explicitly `true`.
+The recurring scheduler, including token-refresh work, starts only when **both** are explicitly `true`.
 
 Application authentication is also opt-in for local-development compatibility:
 
@@ -42,13 +46,13 @@ Application authentication is also opt-in for local-development compatibility:
 APP_AUTH_ENABLED=false
 ```
 
-For any network/public deployment, enable V11 authentication and use HTTPS.
+For any network/public deployment, enable application authentication and use HTTPS.
 
 ## Supported Channels
 
 | Channel | Current state |
 | --- | --- |
-| Instagram | browser account management + OAuth + account identity + image/Reel publish/status adapter |
+| Instagram | browser account management + OAuth + automatic long-lived token refresh + account identity + image/Reel publish/status adapter |
 | Facebook Pages | scheduling model ready; provider adapter not implemented |
 | Threads | scheduling model ready; provider adapter not implemented |
 | TikTok | scheduling model ready; provider adapter not implemented |
@@ -63,7 +67,7 @@ Browser
   |
   +--> Accounts UI --> OAuth --> Instagram
   |
-  +--> Media Library <--> Local media store --> /media/:key
+  +--> Media Library <--> Media Store (local | S3-compatible)
   |
   `--> Composer
           |
@@ -80,12 +84,13 @@ Browser
                claim / lock
                    |
                Dispatcher
-                /      \
-           Publish    Status
-                \      /
-              Platform Adapter
-                   |
-              Provider API
+             /      |       \
+        Publish   Status   Token Refresh
+           |        |          |
+       Platform  Platform   OAuth Adapter
+       Adapter   Adapter       |
+           \        /      Provider API
+            Provider API
 
 Repository interface
   |- JSON repository (default/local development)
@@ -93,7 +98,7 @@ Repository interface
        `- FOR UPDATE SKIP LOCKED scheduler claims
 ```
 
-Provider-specific endpoints, validation, scopes, and response shapes stay inside provider modules. SQL stays inside `server/db/`. Application authentication stays inside focused `server/auth/` and `server/http/` modules rather than provider adapters.
+Provider-specific endpoints, validation, scopes, refresh behavior, and response shapes stay inside provider modules. SQL stays inside `server/db/`. Application authentication stays inside focused `server/auth/` and `server/http/` modules rather than provider adapters.
 
 ## Technology
 
@@ -102,7 +107,7 @@ Provider-specific endpoints, validation, scopes, and response shapes stay inside
 - **Database client:** `pg`
 - **Development persistence:** `data/srocial.json`
 - **Production persistence:** PostgreSQL
-- **Local uploaded media:** `data/uploads/`
+- **Uploaded media:** local filesystem or S3-compatible object storage
 - **Application session:** HMAC-SHA-256 signed HttpOnly cookie
 - **CI:** GitHub Actions + PostgreSQL 17 service
 
@@ -120,7 +125,7 @@ Install runtime dependencies:
 npm install
 ```
 
-The default repository is JSON and application auth is disabled, so local startup requires no database or login:
+The default repository is JSON, media storage is local, and application auth is disabled, so local startup requires no database or login:
 
 ```bash
 npm start
@@ -138,7 +143,7 @@ Run tests:
 npm test
 ```
 
-See `HOW_TO_RUN.md` for the beginner-oriented guide, authentication setup, and PostgreSQL setup steps.
+See `HOW_TO_RUN.md` for the beginner-oriented guide, authentication setup, and PostgreSQL setup steps. See `docs/V12_MEDIA_STORAGE.md` for media-storage configuration and `docs/V13_INSTAGRAM_TOKEN_REFRESH.md` for token-refresh behavior.
 
 ## Environment
 
@@ -162,9 +167,21 @@ API_RATE_LIMIT_MAX=120
 LOGIN_RATE_LIMIT_WINDOW_MS=900000
 LOGIN_RATE_LIMIT_MAX=10
 DATA_FILE=./data/srocial.json
+MEDIA_STORAGE_DRIVER=local
 MEDIA_UPLOAD_DIR=./data/uploads
 MEDIA_UPLOAD_MAX_BYTES=52428800
 MEDIA_UPLOAD_TOTAL_MAX_BYTES=5368709120
+MEDIA_S3_ENDPOINT=
+MEDIA_S3_REGION=auto
+MEDIA_S3_BUCKET=
+MEDIA_S3_ACCESS_KEY_ID=
+MEDIA_S3_SECRET_ACCESS_KEY=
+MEDIA_S3_PREFIX=media/
+MEDIA_PUBLIC_BASE_URL=
+MEDIA_ORPHAN_CLEANUP_ENABLED=false
+MEDIA_ORPHAN_RETENTION_MS=2592000000
+MEDIA_ORPHAN_CLEANUP_INTERVAL_MS=21600000
+MEDIA_ORPHAN_CLEANUP_MAX_DELETES=100
 DATABASE_DRIVER=json
 DATABASE_URL=postgres://...
 TOKEN_ENCRYPTION_KEY=<long-random-secret>
@@ -175,11 +192,11 @@ INSTAGRAM_API_VERSION=v26.0
 
 Srocial does not automatically load `.env` files. Supply environment values through the shell, process manager, container, or deployment environment.
 
-Provider credentials, administrator passwords, session secrets, database credentials, and encryption keys are server-only. Never expose them in frontend JavaScript, browser storage, API responses, logs, or Git history.
+Provider credentials, administrator passwords, session secrets, object-storage credentials, database credentials, and encryption keys are server-only. Never expose them in frontend JavaScript, browser storage, API responses, logs, or Git history.
 
-## Application Authentication — V11
+## Application Authentication — V11+
 
-V11 adds a small application security boundary for self-hosted deployments. It is intentionally a **single-administrator** model; database-backed users, RBAC, invitations, password reset, and external identity providers are not part of V11.
+V11 introduced a small application security boundary for self-hosted deployments. It is intentionally a **single-administrator** model; database-backed users, RBAC, invitations, password reset, and external identity providers are not part of the current implementation.
 
 Enable it explicitly:
 
@@ -209,7 +226,7 @@ Outside loopback-only local development, use an HTTPS `PUBLIC_BASE_URL`. HTTPS p
 
 ### Public exceptions
 
-When V11 auth is enabled, the application is default-deny. Only the following remain public by design:
+When application auth is enabled, the application is default-deny. Only the following remain public by design:
 
 ```text
 GET       /api/health
@@ -243,7 +260,7 @@ LOGIN_RATE_LIMIT_WINDOW_MS=900000
 LOGIN_RATE_LIMIT_MAX=10
 ```
 
-The login limiter and protected-API limiter use independent in-memory fixed windows keyed by `request.socket.remoteAddress`. V11 deliberately does **not** trust `X-Forwarded-For`; reverse-proxy trust configuration is a separate concern. Exceeded limits return HTTP 429 with a `Retry-After` header.
+The login limiter and protected-API limiter use independent in-memory fixed windows keyed by `request.socket.remoteAddress`. Srocial deliberately does **not** trust `X-Forwarded-For`; reverse-proxy trust configuration is a separate concern. Exceeded limits return HTTP 429 with a `Retry-After` header.
 
 Because limits are process-local, they are appropriate for the current single-process application boundary, not a distributed abuse-prevention system.
 
@@ -302,7 +319,7 @@ GET /api/health
 
 Health remains public so infrastructure can determine whether Srocial is alive. Repository failures return HTTP `503` and sanitized metadata only. Connection strings, database hosts, usernames, passwords, and raw driver errors are not returned.
 
-During process shutdown, Srocial stops the scheduler, closes the HTTP server, and closes the selected repository.
+During process shutdown, Srocial stops the scheduler and media-retention loop, closes the HTTP server, and closes the selected repository.
 
 ## Accounts and OAuth
 
@@ -327,6 +344,8 @@ GET /api/oauth/:provider/callback
 ```
 
 Browser callbacks redirect back toward the Accounts section using only sanitized Srocial result codes. If the browser no longer has a valid Srocial application session, the redirected dashboard request goes to the login page.
+
+After a successful Instagram connection, V13 schedules one account-bound long-lived token refresh job when an expiry is available. Scheduled/retrying refresh jobs are reused on reconnect; running refresh jobs are protected against stale-result overwrite.
 
 ## Scheduling API
 
@@ -356,7 +375,7 @@ Content-Type: application/json
 }
 ```
 
-With V11 auth enabled this endpoint requires a valid application session and same-origin mutation validation.
+With application auth enabled this endpoint requires a valid application session and same-origin mutation validation.
 
 Srocial validates that every explicit account exists, is `CONNECTED`, and matches the selected platform. Destinations are deduplicated by `(platform, accountId)`.
 
@@ -369,7 +388,7 @@ Generic media rules:
 
 ## HTTP Surface
 
-### Public when V11 auth is enabled
+### Public when application auth is enabled
 
 ```text
 GET    /api/health
@@ -399,19 +418,24 @@ DELETE /api/media/:key
 
 Future management APIs are protected by default unless deliberately added to the narrow public allowlist.
 
-## Media Uploads and Library
+## Media Uploads and Library — V12+
 
-`POST /api/media/uploads` accepts raw `image/jpeg`, `image/png`, `image/webp`, or `video/mp4` bodies. SVG/HTML types are rejected. The current check is a declared-MIME allowlist, not content-signature inspection or malware scanning.
+`POST /api/media/uploads` accepts raw `image/jpeg`, `image/png`, `image/webp`, or `video/mp4` bodies. SVG/HTML types are rejected. Supported uploads are inspected for matching JPEG, PNG, WebP, or MP4 byte signatures rather than trusting the declared MIME type alone. Signature mismatch or malformed supported media returns a sanitized HTTP 415 response.
 
 Defaults:
 
 ```text
+MEDIA_STORAGE_DRIVER=local
 MEDIA_UPLOAD_DIR=./data/uploads
 MEDIA_UPLOAD_MAX_BYTES=52428800
 MEDIA_UPLOAD_TOTAL_MAX_BYTES=5368709120
 ```
 
-Uploaded assets remain public to anyone with their URL because provider APIs need to retrieve them. Upload, library listing, composer reuse, and deletion are protected by the V11 application session when auth is enabled. Media Library deletion refuses assets referenced by persisted post media and returns `409 { "error": "media_in_use" }`.
+Set `MEDIA_STORAGE_DRIVER=s3` to use the S3-compatible storage adapter. Production S3 endpoints require HTTPS; loopback HTTP remains available for local object-store development. Signed S3 requests do not automatically follow redirects.
+
+Uploaded assets remain public to anyone with their URL because provider APIs need to retrieve them. Upload, library listing, composer reuse, and deletion are protected by the application session when auth is enabled. Media Library deletion refuses assets referenced by persisted post media and returns `409 { "error": "media_in_use" }`.
+
+Automatic orphan cleanup is opt-in and deletes only old unreferenced assets, oldest-first, within the configured batch limit. See `docs/V12_MEDIA_STORAGE.md`.
 
 ## Scheduler Runtime
 
@@ -428,7 +452,7 @@ Default interval:
 SCHEDULER_INTERVAL_MS=30000
 ```
 
-Job states:
+Job types include publication work, provider status checks, and account-bound token refresh. Job states are:
 
 ```text
 SCHEDULED
@@ -439,7 +463,7 @@ FAILED
 CANCELLED
 ```
 
-Default retry delays are 1 minute, 5 minutes, 15 minutes, then 60 minutes thereafter. Provider `PROCESSING` results use status-check jobs rather than republishing original content.
+Default retry delays are 1 minute, 5 minutes, 15 minutes, then 60 minutes thereafter. Provider `PROCESSING` results use status-check jobs rather than republishing original content. V13 token refresh uses the same scheduler and retry policy rather than introducing a second timer subsystem.
 
 ## Data Model
 
@@ -455,7 +479,7 @@ oauth_states
 webhook_events
 ```
 
-V11 application sessions are stateless signed cookies; V11 does not add user/session database tables.
+Application sessions are stateless signed cookies; the current implementation does not add user/session database tables for dashboard authentication.
 
 ## Verification
 
@@ -468,7 +492,7 @@ npm test
 find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-Coverage includes PostgreSQL migrations/persistence/concurrency plus V11 auth configuration, credential checks, signed-session tamper/expiry handling, public-route exceptions, authorization, same-origin mutation rejection, login/API limiting, disabled-auth compatibility, and login/logout UI structure.
+Coverage includes PostgreSQL migrations/persistence/concurrency; application authentication and same-origin controls; V12 local/S3 media storage, signature validation, quotas, deletion/reference protection, and retention cleanup; and V13 Instagram refresh HTTP normalization, refresh scheduling/deduplication, encrypted worker execution, retry/expiry handling, reconnect-race protection, and scheduler dispatch.
 
 ## Repository Structure
 
@@ -500,14 +524,12 @@ srocial/
 
 Next priorities:
 
-1. add object-storage adapters, file-signature inspection, and automatic orphan-retention cleanup;
-2. add long-lived Instagram token refresh jobs;
-3. implement Threads and Facebook provider adapters;
-4. implement TikTok OAuth and Content Posting;
-5. add real provider webhook processing;
-6. implement WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
-7. add calendar/queue operational controls and analytics;
-8. if multi-user access becomes necessary, design database-backed identities, roles, session revocation, and proxy-aware distributed rate limiting as a separate security project.
+1. implement Facebook Pages and Threads provider adapters;
+2. implement TikTok OAuth and Content Posting;
+3. add real provider webhook processing and provider-health/rate-limit visibility;
+4. implement WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
+5. add calendar/queue operational controls, drafts, edit/cancel/retry controls, and analytics;
+6. if multi-user access becomes necessary, design database-backed identities, roles, session revocation, and proxy-aware distributed rate limiting as a separate security project.
 
 ## Development Rules
 

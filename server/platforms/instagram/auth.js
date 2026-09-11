@@ -9,6 +9,13 @@ function cleanAuthorizationCode(code) {
   return String(code ?? '').split('#')[0].trim();
 }
 
+function normalizeTokenExpiry(result, now) {
+  const expiresIn = Number(result?.expires_in);
+  return Number.isFinite(expiresIn) && expiresIn > 0
+    ? new Date(now.getTime() + expiresIn * 1000).toISOString()
+    : null;
+}
+
 export function createInstagramOAuthProvider({ config, client, now = () => new Date() } = {}) {
   if (!config?.appId || !config?.appSecret) throw new Error('INSTAGRAM_CONFIG_REQUIRED');
   if (!client) throw new Error('INSTAGRAM_CLIENT_REQUIRED');
@@ -44,9 +51,29 @@ export function createInstagramOAuthProvider({ config, client, now = () => new D
         }
       });
       if (!long?.access_token) throw providerContractError('AUTH_ERROR');
-      const expiresIn = Number(long.expires_in);
-      const expiresAt = Number.isFinite(expiresIn) && expiresIn > 0 ? new Date(now().getTime() + expiresIn * 1000).toISOString() : null;
-      return { accessToken: long.access_token, refreshToken: null, expiresAt, scopes: [...config.scopes] };
+      return {
+        accessToken: long.access_token,
+        refreshToken: null,
+        expiresAt: normalizeTokenExpiry(long, now()),
+        scopes: [...config.scopes]
+      };
+    },
+
+    async refreshAccessToken({ accessToken }) {
+      const token = String(accessToken ?? '').trim();
+      if (!token) throw providerContractError('AUTH_ERROR');
+      const refreshed = await client.getGraph('/refresh_access_token', {
+        versioned: false,
+        query: {
+          grant_type: 'ig_refresh_token',
+          access_token: token
+        }
+      });
+      if (!refreshed?.access_token) throw providerContractError('AUTH_ERROR');
+      return {
+        accessToken: refreshed.access_token,
+        expiresAt: normalizeTokenExpiry(refreshed, now())
+      };
     },
 
     async getAccountIdentity({ accessToken }) {

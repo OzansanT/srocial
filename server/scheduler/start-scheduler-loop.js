@@ -18,6 +18,8 @@ export function startSchedulerLoop({
   allowRealPublish = false,
   repository,
   registry,
+  oauthRegistry,
+  tokenCipher,
   intervalMs = DEFAULT_INTERVAL_MS,
   workerId = `scheduler-${randomUUID()}`,
   tick,
@@ -39,7 +41,7 @@ export function startSchedulerLoop({
     if (stopped || inFlight) return;
     inFlight = true;
     try {
-      await tick({ repository, registry, workerId, now: new Date() });
+      await tick({ repository, registry, oauthRegistry, tokenCipher, workerId, now: new Date() });
     } catch (error) {
       logger?.error?.('Scheduler tick failed', { code: error?.code ?? 'SCHEDULER_TICK_ERROR' });
     } finally {
