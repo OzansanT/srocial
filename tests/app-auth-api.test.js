@@ -12,7 +12,7 @@ const AUTH_ENV = Object.freeze({
   ADMIN_PASSWORD: 'correct-horse-battery',
   SESSION_SECRET: 's'.repeat(40),
   SESSION_TTL_SECONDS: '3600',
-  PUBLIC_BASE_URL: 'http://srocial.test',
+  PUBLIC_BASE_URL: 'https://srocial.test',
   API_RATE_LIMIT_WINDOW_MS: '60000',
   API_RATE_LIMIT_MAX: '20',
   LOGIN_RATE_LIMIT_WINDOW_MS: '60000',
@@ -46,7 +46,7 @@ function cookiePair(response) {
   return setCookie.split(';', 1)[0];
 }
 
-async function login(base, { username = 'operator', password = 'correct-horse-battery', origin = 'http://srocial.test' } = {}) {
+async function login(base, { username = 'operator', password = 'correct-horse-battery', origin = 'https://srocial.test' } = {}) {
   return fetch(`${base}/api/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json', origin },
@@ -105,6 +105,7 @@ test('login issues a signed session used by session and protected APIs', async (
     const cookie = cookiePair(authenticated);
     assert.match(authenticated.headers.get('set-cookie'), /HttpOnly/);
     assert.match(authenticated.headers.get('set-cookie'), /SameSite=Strict/);
+    assert.match(authenticated.headers.get('set-cookie'), /Secure/);
 
     const session = await fetch(`${base}/api/auth/session`, { headers: { cookie, accept: 'application/json' } });
     assert.equal(session.status, 200);
@@ -140,7 +141,7 @@ test('logout expires the session cookie', async () => {
     const cookie = cookiePair(authenticated);
     const response = await fetch(`${base}/api/auth/logout`, {
       method: 'POST',
-      headers: { cookie, origin: 'http://srocial.test', accept: 'application/json' }
+      headers: { cookie, origin: 'https://srocial.test', accept: 'application/json' }
     });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { authenticated: false });
@@ -157,6 +158,20 @@ test('login attempts are rate limited per remote address', async () => {
     assert.equal(blocked.status, 429);
     assert.deepEqual(await blocked.json(), { error: 'rate_limited' });
     assert.ok(Number(blocked.headers.get('retry-after')) > 0);
+  }, { env });
+});
+
+test('login rate limit is enforced before parsing another request body', async () => {
+  const env = { ...AUTH_ENV, LOGIN_RATE_LIMIT_MAX: '1' };
+  await withServer(async (base) => {
+    assert.equal((await login(base, { password: 'wrong-password-one' })).status, 401);
+    const blocked = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://srocial.test' },
+      body: '{'
+    });
+    assert.equal(blocked.status, 429);
+    assert.deepEqual(await blocked.json(), { error: 'rate_limited' });
   }, { env });
 });
 
