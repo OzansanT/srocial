@@ -45,3 +45,12 @@ test('writes valid JSON and returns defensive copies', async () => {
     assert.equal(disk.posts[0].caption, 'Original');
   });
 });
+
+test('JSON repository exposes health and close parity with PostgreSQL', async () => {
+  await withTempFile(async (filePath) => {
+    const repository = createJsonRepository({ filePath });
+    await repository.initialize();
+    assert.deepEqual(await repository.healthCheck(), { ok: true, backend: 'json' });
+    assert.equal(await repository.close(), undefined);
+  });
+});
