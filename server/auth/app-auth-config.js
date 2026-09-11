@@ -11,6 +11,14 @@ function createConfigError(code, message) {
   return error;
 }
 
+function readEnabled(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return false;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw createConfigError('APP_AUTH_ENABLED_INVALID', 'APP_AUTH_ENABLED must be true or false');
+}
+
 function readPositiveInteger(value, fallback, name) {
   if (value === undefined || value === null || String(value).trim() === '') return fallback;
   const parsed = Number(value);
@@ -31,8 +39,16 @@ function readPublicUrl(value) {
   }
 }
 
+function isLoopbackHostname(hostname) {
+  const normalized = String(hostname ?? '').trim().toLowerCase();
+  if (normalized === 'localhost' || normalized === '::1' || normalized === '[::1]') return true;
+  const match = normalized.match(/^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return false;
+  return match.slice(1).every((part) => Number(part) >= 0 && Number(part) <= 255);
+}
+
 export function readAppAuthConfig(env = {}) {
-  const enabled = String(env.APP_AUTH_ENABLED ?? 'false').trim().toLowerCase() === 'true';
+  const enabled = readEnabled(env.APP_AUTH_ENABLED);
   const username = String(env.ADMIN_USERNAME ?? 'admin').trim() || 'admin';
   const password = String(env.ADMIN_PASSWORD ?? '');
   const sessionSecret = String(env.SESSION_SECRET ?? '');
@@ -43,6 +59,9 @@ export function readAppAuthConfig(env = {}) {
   }
   if (enabled && sessionSecret.length < 32) {
     throw createConfigError('APP_AUTH_SESSION_SECRET_WEAK', 'SESSION_SECRET must contain at least 32 characters when application auth is enabled');
+  }
+  if (enabled && publicUrl.protocol !== 'https:' && !isLoopbackHostname(publicUrl.hostname)) {
+    throw createConfigError('APP_AUTH_HTTPS_REQUIRED', 'Application authentication requires HTTPS outside loopback development');
   }
 
   return Object.freeze({
