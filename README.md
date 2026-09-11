@@ -4,11 +4,11 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, and bu
 
 The project uses one scheduling engine with isolated provider adapters. Instagram, Facebook, Threads, TikTok, and WhatsApp Business therefore do not become five unrelated applications. WhatsApp remains a separate messaging/campaign subsystem rather than a public-post adapter.
 
-## Current Status — V8
+## Current Status — V9
 
 The runnable foundation now includes:
 
-- vanilla HTML/CSS/JavaScript dashboard, Accounts panel, and account-bound composer;
+- vanilla HTML/CSS/JavaScript dashboard, Accounts panel, Media Library, and account-bound composer;
 - provider-neutral Accounts/OAuth infrastructure;
 - browser Instagram Connect, Reconnect, and Disconnect controls;
 - safe OAuth browser callbacks that return to the Accounts panel;
@@ -20,6 +20,7 @@ The runnable foundation now includes:
 - explicit account-bound social destinations;
 - post media persistence using externally reachable HTTPS URLs;
 - direct JPEG/PNG/WebP/MP4 uploads with streamed local storage and composer controls;
+- a Media Library with preview, reuse, URL copying, reference-protected deletion, usage reporting, and total-storage quotas;
 - account/platform compatibility validation before scheduling;
 - one publication and scheduler job per selected destination;
 - atomic job claiming, worker locks, stale-lock recovery, retries, status checks, and idempotency guards;
@@ -60,6 +61,10 @@ Browser
   |                                      |
   +<---------- safe dashboard redirect <-+
   |
+  +--> Media Library <--> Local media store
+  |       |                    |
+  |       | use in composer    `--> /media/:key
+  |       v
   +--> Composer
           |
           | destination = platform + accountId
@@ -90,13 +95,14 @@ Repository
   `- PostgreSQL production target
 ```
 
-Provider-specific endpoints, validation, scopes, and response shapes stay inside provider modules. The generic scheduler, account service, and post service do not contain Instagram endpoint logic.
+Provider-specific endpoints, validation, scopes, and response shapes stay inside provider modules. The generic scheduler, account service, media-library service, and post service do not contain Instagram endpoint logic.
 
 ## Technology
 
 - **Frontend:** HTML, CSS, vanilla JavaScript ES modules
 - **Backend:** Node.js >= 20, built-in HTTP server
 - **Development persistence:** `data/srocial.json`
+- **Local uploaded media:** `data/uploads/`
 - **Production database target:** PostgreSQL
 - **CI:** GitHub Actions
 - **External npm dependencies:** none in the current runtime
@@ -144,6 +150,7 @@ PUBLIC_BASE_URL=http://127.0.0.1:3000
 DATA_FILE=./data/srocial.json
 MEDIA_UPLOAD_DIR=./data/uploads
 MEDIA_UPLOAD_MAX_BYTES=52428800
+MEDIA_UPLOAD_TOTAL_MAX_BYTES=5368709120
 DATABASE_URL=postgres://...
 TOKEN_ENCRYPTION_KEY=<long-random-secret>
 INSTAGRAM_APP_ID=
@@ -157,7 +164,7 @@ Provider credentials and encryption keys are server-only. Never expose them in H
 
 ## Accounts UI — V7
 
-The dashboard now contains an Accounts section.
+The dashboard contains an Accounts section.
 
 For Instagram, the browser supports:
 
@@ -167,7 +174,7 @@ Reconnect
 Disconnect
 ```
 
-Connect/Reconnect uses the existing server OAuth start endpoint:
+Connect/Reconnect uses:
 
 ```text
 POST /api/oauth/instagram/start
@@ -219,7 +226,7 @@ Clients that send:
 Accept: application/json
 ```
 
-keep the previous API behavior and receive the safe JSON callback payload/status rather than a browser redirect.
+keep the existing API behavior and receive the safe JSON callback payload/status rather than a browser redirect.
 
 ## Scheduling API
 
@@ -265,7 +272,7 @@ Generic media rules:
 - at most 10 media records per post at the generic layer;
 - provider adapters may impose stricter rules.
 
-The current Instagram adapter accepts one externally reachable HTTPS image or one Reel video. V8 can upload files to Srocial and reuse the generated URL in this same contract. Provider-specific format requirements still apply.
+The current Instagram adapter accepts one externally reachable HTTPS image or one Reel video. Uploaded files and Media Library assets reuse the same URL-based post contract. Provider-specific format requirements still apply.
 
 ### Legacy compatibility
 
@@ -284,16 +291,18 @@ It creates publications with `accountId = null`. This exists for backward compat
 ### Public API surface
 
 ```text
-GET  /api/posts
-POST /api/posts
-GET  /api/dashboard
-GET  /api/accounts
-POST /api/accounts/:id/disconnect
-POST /api/oauth/:provider/start
-GET  /api/oauth/:provider/callback
-POST /api/media/uploads
-GET  /media/:key
-HEAD /media/:key
+GET    /api/posts
+POST   /api/posts
+GET    /api/dashboard
+GET    /api/accounts
+POST   /api/accounts/:id/disconnect
+POST   /api/oauth/:provider/start
+GET    /api/oauth/:provider/callback
+GET    /api/media
+POST   /api/media/uploads
+DELETE /api/media/:key
+GET    /media/:key
+HEAD   /media/:key
 ```
 
 Account responses contain safe metadata only; access/refresh token fields are not returned.
@@ -310,19 +319,39 @@ For each platform it presents:
 
 A destination is enabled only when a connected account exists for that provider. The submitted payload contains the selected account ID rather than only a platform name.
 
-The composer accepts one image/video HTTPS URL or a directly uploaded file. Choose a file, then click **Upload file** to fill the URL and media type automatically. Uploading locks media controls and scheduling until it finishes; errors preserve the previous URL and allow retry. Manual URL entry remains supported.
+The composer accepts one image/video HTTPS URL, a directly uploaded file, or an asset selected from the Media Library. Uploading locks media controls and scheduling until it finishes; errors preserve the previous URL and allow retry. Manual URL entry remains supported.
 
-### Direct media uploads — V8
+## Direct media uploads — V8
 
-`POST /api/media/uploads` accepts the raw file body with one of these declared MIME types: `image/jpeg`, `image/png`, `image/webp`, or `video/mp4`. It returns `{ upload: { key, type, contentType, size, url, isHttps } }`. SVG/HTML MIME types are rejected. This is a MIME allowlist, not content inspection or malware scanning.
+`POST /api/media/uploads` accepts the raw file body with one of these declared MIME types: `image/jpeg`, `image/png`, `image/webp`, or `video/mp4`. It returns `{ upload: { key, type, contentType, size, url, isHttps } }`. SVG/HTML MIME types are rejected. This is a MIME allowlist, not content-signature inspection or malware scanning.
 
-Files stream to `data/uploads/` by default, under generated UUID filenames. `MEDIA_UPLOAD_DIR` changes that directory; `MEDIA_UPLOAD_MAX_BYTES` changes the per-file limit (default `52428800`, 50 MiB). Empty, failed, and oversized uploads are removed. Back up this directory alongside the data file and retain it across deployments.
+Files stream to `data/uploads/` by default under generated UUID filenames. `MEDIA_UPLOAD_DIR` changes that directory. `MEDIA_UPLOAD_MAX_BYTES` changes the per-file limit (default `52428800`, 50 MiB). `MEDIA_UPLOAD_TOTAL_MAX_BYTES` changes the total local-media quota (default `5368709120`, 5 GiB). Empty, failed, oversized, and over-quota partial uploads are removed.
 
-Uploaded assets are **public to anyone with their URL**, served with trusted MIME headers and `nosniff`. There is no upload deletion UI or total-storage quota yet. This development server has no application login or upload authorization: protect the dashboard and `/api/` behind authenticated access and request limits before exposing it, while allowing provider retrieval of `/media/`.
+Uploaded assets are **public to anyone with their URL**, served with trusted MIME headers and `nosniff`. This development server still has no application login or upload authorization: protect the dashboard and `/api/` behind authenticated access and request limits before exposing it, while allowing provider retrieval of `/media/`.
 
-Local HTTP uploads work for storage testing, but the existing scheduling API still requires HTTPS. Set `PUBLIC_BASE_URL` to the actual externally reachable HTTPS origin serving Srocial before uploading media for provider publishing. Changing this setting does not rewrite old URLs; re-upload or enter the correct HTTPS URL. An HTTPS URL alone does not prove public reachability.
+Local HTTP uploads work for storage testing, but the scheduling API still requires HTTPS. Set `PUBLIC_BASE_URL` to the actual externally reachable HTTPS origin serving Srocial before uploading media for provider publishing. Changing this setting does not rewrite old URLs; re-upload or select/enter the correct HTTPS URL. An HTTPS URL alone does not prove public reachability.
 
-The local media store remains behind a storage interface, allowing a future R2/S3 implementation without changing the composer/post contract. Multiple-media UI and object-storage adapters are future work.
+## Media Library — V9
+
+The dashboard Media section lists local uploaded assets with previews, media type, file size, storage usage, and actions.
+
+`GET /api/media` returns the local asset inventory and aggregate quota information. File-system paths are never returned. Assets are marked `referenced: true` when a persisted post-media URL points to their `/media/:key` path.
+
+`DELETE /api/media/:key` deletes only unused local assets. If a persisted post references the asset, deletion returns:
+
+```http
+409 Conflict
+```
+
+```json
+{ "error": "media_in_use" }
+```
+
+This reference check compares the `/media/:key` portion rather than the host, so changing `PUBLIC_BASE_URL` does not make a referenced asset appear unused. Deletion never cascades into posts or publication records.
+
+The browser provides **Use in composer**, **Copy URL**, and **Delete** actions. Referenced assets display an **In use** state and cannot be deleted from the library.
+
+The local media store remains behind a storage interface, allowing a future R2/S3 implementation without changing the composer/post contract. Multiple-media composer UI, object-storage adapters, authentication, file-signature inspection, malware scanning, and automatic orphan-retention cleanup remain future work.
 
 ## Instagram Provider
 
@@ -419,7 +448,9 @@ Publication ---- Post ---- Media
 Scheduler Job
 ```
 
-The PostgreSQL schema already contains `media`, `publications.account_id`, and `scheduler_jobs.account_id`; V7 requires no database migration.
+The Media Library inventory is derived from the configured media store; persisted `media` records remain post-media references. V9 therefore does not create a second upload metadata table.
+
+The PostgreSQL schema already contains `media`, `publications.account_id`, and `scheduler_jobs.account_id` for the production target.
 
 ## Security Boundary
 
@@ -437,6 +468,8 @@ Provider API
 ```
 
 OAuth state is random, stored as a SHA-256 hash, expires, and is single-use. Provider tokens are encrypted at rest. Browser callback redirects use fixed Srocial-relative destinations and sanitized error codes. Real publishing remains default-off behind two independent switches.
+
+Media-library responses expose public media metadata but never local disk paths. Media deletion validates generated keys and refuses referenced assets.
 
 ## Verification
 
@@ -463,14 +496,20 @@ srocial/
 |- updaterules.md
 |- client/
 |  |- index.html
-|  |- css/
-|  |  `- pages/accounts.css
+|  |- css/pages/
+|  |  |- accounts.css
+|  |  `- media-library.css
 |  `- js/
-|     |- api/accounts-api.js
-|     `- pages/accounts.js
+|     |- api/
+|     |  |- accounts-api.js
+|     |  `- media-library-api.js
+|     `- pages/
+|        |- accounts.js
+|        `- media-library.js
 |- server/
 |  |- auth/
 |  |- db/
+|  |- media/
 |  |- routes/
 |  |- services/
 |  |- scheduler/
@@ -486,14 +525,14 @@ srocial/
 
 Next priorities:
 
-1. add object storage, upload authorization, quotas, and media lifecycle management;
+1. add object-storage adapters, upload authorization, file-signature inspection, and automatic orphan-retention cleanup;
 2. add long-lived Instagram token refresh jobs;
 3. implement Threads and Facebook provider adapters;
 4. implement TikTok OAuth and Content Posting;
 5. add real provider webhook processing;
 6. implement WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
 7. implement the production PostgreSQL repository with transaction-safe claims;
-8. add analytics and deeper operational controls.
+8. add calendar/queue operational controls and analytics.
 
 ## Development Rules
 
