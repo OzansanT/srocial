@@ -50,7 +50,12 @@ test('rejects a schedule that is not in the future', async () => {
 
 test('legacy platforms remain supported and create unbound publications', async () => {
   const repository = createRepository();
-  const result = await createScheduledPost(repository, { caption: '  New post  ', platforms: ['Instagram', 'threads', 'instagram'], scheduledAt: future }, { now });
+  const result = await createScheduledPost(repository, {
+    caption: '  New post  ',
+    platforms: ['Instagram', 'threads', 'instagram'],
+    media: [{ type: 'image', url: 'https://cdn.example.com/legacy.jpg' }],
+    scheduledAt: future
+  }, { now });
   assert.equal(result.post.caption, 'New post');
   assert.deepEqual(result.publications.map((item) => item.platform), ['instagram', 'threads']);
   assert.ok(result.publications.every((item) => item.accountId === null));
@@ -79,6 +84,7 @@ test('explicit destinations are deduplicated by platform and accountId', async (
   const result = await createScheduledPost(repository, {
     caption: 'Dedupe',
     destinations: [{ platform: 'Instagram', accountId: 'acc-ig' }, { platform: 'instagram', accountId: 'acc-ig' }],
+    media: [{ type: 'image', url: 'https://cdn.example.com/dedupe.jpg' }],
     scheduledAt: future
   }, { now });
   assert.equal(result.publications.length, 1);
@@ -89,7 +95,9 @@ test('rejects missing, disconnected, and cross-platform accounts', async () => {
   for (const [accountId, accounts] of [['missing', [instagram]], ['acc-off', [disconnected]], ['acc-fb', [facebook]]]) {
     const repository = createRepository({ accounts });
     await assert.rejects(() => createScheduledPost(repository, {
-      caption: 'Bad account', destinations: [{ platform: 'instagram', accountId }], scheduledAt: future
+      caption: 'Bad account', destinations: [{ platform: 'instagram', accountId }],
+      media: [{ type: 'image', url: 'https://cdn.example.com/account.jpg' }],
+      scheduledAt: future
     }, { now }), (error) => {
       assert.equal(error.code, 'VALIDATION_ERROR');
       assert.ok(error.details.some((item) => item.field === 'destinations'));
