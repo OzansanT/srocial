@@ -20,7 +20,7 @@ test('rejects unsupported media storage driver', () => {
   );
 });
 
-test('S3 selection fails closed when required configuration is missing', () => {
+test('S3 selection fails closed when required configuration is missing or blank', () => {
   const base = {
     MEDIA_STORAGE_DRIVER: 's3',
     MEDIA_S3_ENDPOINT: 'https://objects.example.com',
@@ -30,9 +30,33 @@ test('S3 selection fails closed when required configuration is missing', () => {
     MEDIA_PUBLIC_BASE_URL: 'https://cdn.example.com/media'
   };
   for (const name of ['MEDIA_S3_ENDPOINT', 'MEDIA_S3_BUCKET', 'MEDIA_S3_ACCESS_KEY_ID', 'MEDIA_S3_SECRET_ACCESS_KEY', 'MEDIA_PUBLIC_BASE_URL']) {
-    const env = { ...base, [name]: '' };
-    assert.throws(() => createMediaStoreFromEnvironment({ env }), /MEDIA_S3_CONFIG_REQUIRED/);
+    for (const value of ['', '   ']) {
+      const env = { ...base, [name]: value };
+      assert.throws(() => createMediaStoreFromEnvironment({ env }), /MEDIA_S3_CONFIG_REQUIRED/);
+    }
   }
+});
+
+test('S3 endpoint requires HTTPS except explicit loopback development', () => {
+  const base = {
+    MEDIA_STORAGE_DRIVER: 's3',
+    MEDIA_S3_BUCKET: 'bucket',
+    MEDIA_S3_ACCESS_KEY_ID: 'access',
+    MEDIA_S3_SECRET_ACCESS_KEY: 'secret',
+    MEDIA_PUBLIC_BASE_URL: 'https://cdn.example.com/media'
+  };
+  assert.throws(
+    () => createMediaStoreFromEnvironment({ env: { ...base, MEDIA_S3_ENDPOINT: 'http://objects.example.com' } }),
+    /MEDIA_S3_ENDPOINT_HTTPS_REQUIRED/
+  );
+  assert.doesNotThrow(() => createMediaStoreFromEnvironment({
+    env: { ...base, MEDIA_S3_ENDPOINT: 'http://127.0.0.1:9000' },
+    fetchImpl: async () => { throw new Error('not called'); }
+  }));
+  assert.doesNotThrow(() => createMediaStoreFromEnvironment({
+    env: { ...base, MEDIA_S3_ENDPOINT: 'http://localhost:9000' },
+    fetchImpl: async () => { throw new Error('not called'); }
+  }));
 });
 
 test('creates S3 media store with configured public URL mapping without making network calls', () => {
