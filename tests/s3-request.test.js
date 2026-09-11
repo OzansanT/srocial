@@ -15,7 +15,7 @@ function config(overrides = {}) {
   };
 }
 
-test('signs and forwards S3 requests without exposing credentials in URL', async () => {
+test('signs and forwards S3 requests without exposing credentials in URL or following redirects', async () => {
   const calls = [];
   const client = createS3RequestClient(config({
     fetchImpl: async (url, options) => {
@@ -35,11 +35,16 @@ test('signs and forwards S3 requests without exposing credentials in URL', async
   assert.match(calls[0].options.headers.authorization, /^AWS4-HMAC-SHA256 Credential=test-access\//);
   assert.equal(calls[0].options.headers['x-amz-content-sha256'], EMPTY_HASH);
   assert.equal(calls[0].options.headers['x-amz-date'], '20260911T123456Z');
+  assert.equal(calls[0].options.redirect, 'manual');
   assert.equal(calls[0].url.includes('test-secret'), false);
 });
 
 test('maps object-store statuses to sanitized media error codes', async () => {
   const cases = [
+    [301, 'MEDIA_STORAGE_ERROR'],
+    [302, 'MEDIA_STORAGE_ERROR'],
+    [307, 'MEDIA_STORAGE_ERROR'],
+    [308, 'MEDIA_STORAGE_ERROR'],
     [404, 'MEDIA_NOT_FOUND'],
     [401, 'MEDIA_STORAGE_AUTH_ERROR'],
     [403, 'MEDIA_STORAGE_AUTH_ERROR'],
