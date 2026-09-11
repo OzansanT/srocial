@@ -50,7 +50,7 @@ export function createThreadsClient({ fetchImpl = globalThis.fetch, apiVersion =
 
   async function request(url, init = {}) {
     let response;
-    try { response = await fetchImpl(url, { redirect: 'error', ...init }); }
+    try { response = await fetchImpl(String(url), { redirect: 'error', ...init }); }
     catch { throw new ThreadsProviderError('NETWORK_ERROR', { retryable: true }); }
     const payload = await readJson(response);
     if (!response.ok) throw providerError(response.status, payload);
