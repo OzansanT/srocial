@@ -13,6 +13,13 @@ test('application auth is disabled by default with safe operational defaults', (
   assert.deepEqual(config.loginRateLimit, { windowMs: 900000, max: 10 });
 });
 
+test('explicit invalid auth boolean fails closed instead of silently disabling protection', () => {
+  assert.throws(
+    () => readAppAuthConfig({ APP_AUTH_ENABLED: 'tru' }),
+    (error) => error?.code === 'APP_AUTH_ENABLED_INVALID'
+  );
+});
+
 test('enabled auth requires a strong administrator password', () => {
   assert.throws(
     () => readAppAuthConfig({
@@ -37,6 +44,27 @@ test('enabled auth requires a session secret with at least 32 characters', () =>
     }),
     (error) => error?.code === 'APP_AUTH_SESSION_SECRET_WEAK'
   );
+});
+
+test('enabled auth rejects non-loopback HTTP origins', () => {
+  assert.throws(
+    () => readAppAuthConfig({
+      APP_AUTH_ENABLED: 'true',
+      ADMIN_PASSWORD: 'correct-horse-battery',
+      SESSION_SECRET: 's'.repeat(40),
+      PUBLIC_BASE_URL: 'http://srocial.example.com'
+    }),
+    (error) => error?.code === 'APP_AUTH_HTTPS_REQUIRED'
+  );
+
+  const loopback = readAppAuthConfig({
+    APP_AUTH_ENABLED: 'true',
+    ADMIN_PASSWORD: 'correct-horse-battery',
+    SESSION_SECRET: 's'.repeat(40),
+    PUBLIC_BASE_URL: 'http://127.0.0.1:3000'
+  });
+  assert.equal(loopback.enabled, true);
+  assert.equal(loopback.secureCookies, false);
 });
 
 test('enabled auth parses explicit limits and enables secure cookies for HTTPS', () => {
