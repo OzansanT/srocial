@@ -418,6 +418,43 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
       return mapPublication(result.rows[0] ?? null);
     },
 
+    async claimDueJobs({ now = new Date(), workerId, limit = 10, lockTimeoutMs = 120000 } = {}) {
+      if (!String(workerId ?? '').trim()) throw new Error('workerId is required');
+      const nowMs = now.getTime();
+      const staleBefore = new Date(nowMs - Math.max(0, Number(lockTimeoutMs) || 0));
+      const maxJobs = Math.max(0, Number.parseInt(limit, 10) || 0);
+      if (maxJobs === 0) return [];
+
+      const result = await database.query(
+        `WITH candidates AS (
+           SELECT id
+           FROM scheduler_jobs
+           WHERE scheduled_at <= $1
+             AND (
+               state IN ('SCHEDULED', 'RETRYING')
+               OR (
+                 state = 'RUNNING'
+                 AND (locked_at IS NULL OR locked_at <= $2)
+               )
+             )
+           ORDER BY scheduled_at, id
+           FOR UPDATE SKIP LOCKED
+           LIMIT $3
+         )
+         UPDATE scheduler_jobs AS jobs
+         SET state = 'RUNNING',
+             locked_at = $1,
+             locked_by = $4,
+             attempts = jobs.attempts + 1,
+             updated_at = $1
+         FROM candidates
+         WHERE jobs.id = candidates.id
+         RETURNING jobs.*`,
+        [now, staleBefore, maxJobs, workerId]
+      );
+      return result.rows.map(mapJob);
+    },
+
     async listJobs() {
       const result = await database.query('SELECT * FROM scheduler_jobs ORDER BY scheduled_at, id');
       return result.rows.map(mapJob);
