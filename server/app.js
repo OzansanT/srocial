@@ -23,6 +23,12 @@ const SAFE_OAUTH_ERROR_CODES = new Set([
   'oauth_provider_error',
   'oauth_not_configured'
 ]);
+const MEDIA_ERROR_RESPONSES = Object.freeze({
+  UNSUPPORTED_MEDIA_TYPE: { statusCode: 415, error: 'unsupported_media_type' },
+  EMPTY_MEDIA: { statusCode: 400, error: 'empty_media' },
+  MEDIA_TOO_LARGE: { statusCode: 413, error: 'media_too_large' },
+  MEDIA_NOT_FOUND: { statusCode: 404, error: 'not_found' }
+});
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -51,6 +57,14 @@ function oauthDashboardLocation(provider, { status, code = null }) {
   return `/?${params.toString()}#accounts`;
 }
 
+function mediaErrorResponse(error) {
+  return MEDIA_ERROR_RESPONSES[error?.code] ?? null;
+}
+
+function decodeMediaKey(value) {
+  try { return decodeURIComponent(value); } catch { return null; }
+}
+
 function safeClientPath(pathname) {
   const requested = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const normalized = normalize(requested);
@@ -75,13 +89,55 @@ async function serveStatic(pathname, response) {
   }
 }
 
-export function createRequestHandler({ repository = null, now = () => new Date(), oauthProviderRegistry = new Map(), tokenCipher = null, publicBaseUrl = 'http://127.0.0.1:3000' } = {}) {
+export function createRequestHandler({ repository = null, now = () => new Date(), oauthProviderRegistry = new Map(), tokenCipher = null, publicBaseUrl = 'http://127.0.0.1:3000', mediaStore = null } = {}) {
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
 
       if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, getHealthPayload());
       if (request.method === 'GET' && url.pathname === '/api/dashboard') return sendJson(response, 200, await getDashboardPayload(repository));
+
+      if (request.method === 'POST' && url.pathname === '/api/media/uploads') {
+        if (!mediaStore) return sendJson(response, 503, { error: 'media_storage_unavailable' });
+        try {
+          const upload = await mediaStore.save(request, { contentType: request.headers['content-type'] });
+          return sendJson(response, 201, { upload });
+        } catch (error) {
+          const mapped = mediaErrorResponse(error);
+          if (mapped) return sendJson(response, mapped.statusCode, { error: mapped.error });
+          throw error;
+        }
+      }
+
+      const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
+      if ((request.method === 'GET' || request.method === 'HEAD') && mediaMatch) {
+        if (!mediaStore) return sendJson(response, 404, { error: 'not_found' });
+        const key = decodeMediaKey(mediaMatch[1]);
+        if (!key) return sendJson(response, 404, { error: 'not_found' });
+        let asset;
+        try {
+          asset = await mediaStore.open(key);
+        } catch (error) {
+          const mapped = mediaErrorResponse(error);
+          if (mapped) return sendJson(response, mapped.statusCode, { error: mapped.error });
+          throw error;
+        }
+        response.writeHead(200, {
+          'content-type': asset.contentType,
+          'content-length': String(asset.size),
+          'cache-control': 'public, max-age=31536000, immutable',
+          'x-content-type-options': 'nosniff'
+        });
+        if (request.method === 'HEAD') {
+          asset.stream.destroy();
+          response.end();
+          return;
+        }
+        asset.stream.on('error', () => response.destroy());
+        response.once('close', () => asset.stream.destroy());
+        asset.stream.pipe(response);
+        return;
+      }
 
       if (request.method === 'GET' && url.pathname === '/api/posts') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
@@ -144,7 +200,7 @@ export function createRequestHandler({ repository = null, now = () => new Date()
       return sendJson(response, 404, { error: 'not_found' });
     } catch (error) {
       if (error instanceof RequestBodyError) return sendJson(response, error.statusCode, { error: error.code });
-      console.error('Request failed', error);
+      console.error('Request failed', { code: error?.code ?? 'INTERNAL_ERROR' });
       return sendJson(response, 500, { error: 'internal_error' });
     }
   };
