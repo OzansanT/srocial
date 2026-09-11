@@ -4,7 +4,7 @@ import { createAppAuth } from './auth/create-app-auth.js';
 import { createOAuthProviderRegistry } from './auth/oauth-provider-registry.js';
 import { createTokenCipher } from './auth/token-crypto.js';
 import { createRepositoryFromEnvironment } from './db/create-repository.js';
-import { createLocalMediaStore } from './media/local-media-store.js';
+import { createMediaStoreFromEnvironment } from './media/create-media-store.js';
 import { createPlatformRegistry } from './platforms/registry.js';
 import { registerInstagramProvider } from './platforms/instagram/index.js';
 import { runSchedulerTick } from './scheduler/run-scheduler-tick.js';
@@ -13,19 +13,15 @@ import { startSchedulerLoop } from './scheduler/start-scheduler-loop.js';
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 const host = process.env.HOST ?? '127.0.0.1';
 const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://${host}:${port}`;
-const appAuth = createAppAuth({ env: { ...process.env, PUBLIC_BASE_URL: publicBaseUrl } });
+const runtimeEnv = { ...process.env, PUBLIC_BASE_URL: publicBaseUrl };
+const appAuth = createAppAuth({ env: runtimeEnv });
 const repository = createRepositoryFromEnvironment();
 await repository.initialize();
 
 const oauthProviderRegistry = createOAuthProviderRegistry();
 const platformRegistry = createPlatformRegistry();
 const tokenCipher = process.env.TOKEN_ENCRYPTION_KEY ? createTokenCipher(process.env.TOKEN_ENCRYPTION_KEY) : null;
-const mediaStore = createLocalMediaStore({
-  rootDirectory: process.env.MEDIA_UPLOAD_DIR ?? './data/uploads',
-  publicBaseUrl,
-  maxBytes: process.env.MEDIA_UPLOAD_MAX_BYTES ?? '52428800',
-  totalMaxBytes: process.env.MEDIA_UPLOAD_TOTAL_MAX_BYTES ?? '5368709120'
-});
+const mediaStore = createMediaStoreFromEnvironment({ env: runtimeEnv });
 await mediaStore.initialize();
 
 registerInstagramProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
