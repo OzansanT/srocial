@@ -8,6 +8,7 @@ import { createMediaStoreFromEnvironment } from './media/create-media-store.js';
 import { createPlatformRegistry } from './platforms/registry.js';
 import { registerInstagramProvider } from './platforms/instagram/index.js';
 import { runSchedulerTick } from './scheduler/run-scheduler-tick.js';
+import { startMediaRetentionLoop } from './scheduler/start-media-retention-loop.js';
 import { startSchedulerLoop } from './scheduler/start-scheduler-loop.js';
 
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
@@ -35,6 +36,15 @@ const schedulerLoop = startSchedulerLoop({
   tick: runSchedulerTick
 });
 
+const mediaRetentionLoop = startMediaRetentionLoop({
+  enabled: process.env.MEDIA_ORPHAN_CLEANUP_ENABLED,
+  repository,
+  mediaStore,
+  retentionMs: process.env.MEDIA_ORPHAN_RETENTION_MS,
+  intervalMs: process.env.MEDIA_ORPHAN_CLEANUP_INTERVAL_MS,
+  maxDeletes: process.env.MEDIA_ORPHAN_CLEANUP_MAX_DELETES
+});
+
 const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, tokenCipher, publicBaseUrl, mediaStore, appAuth }));
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 
@@ -52,6 +62,7 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   schedulerLoop.stop();
+  mediaRetentionLoop.stop();
   server.close(async (error) => {
     if (error) {
       console.error('Srocial shutdown failed', { code: error?.code ?? 'SERVER_CLOSE_ERROR' });
