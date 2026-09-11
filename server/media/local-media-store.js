@@ -2,36 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createValidatedMediaIterable, mediaMetadataFromKey, MediaStoreError } from './media-format.js';
 
-const MEDIA_TYPES = Object.freeze({
-  'image/jpeg': { extension: '.jpg', type: 'image' },
-  'image/png': { extension: '.png', type: 'image' },
-  'image/webp': { extension: '.webp', type: 'image' },
-  'video/mp4': { extension: '.mp4', type: 'video' }
-});
+export { MediaStoreError } from './media-format.js';
 
-const EXTENSIONS = Object.freeze({
-  jpg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-  mp4: 'video/mp4'
-});
-
-const GENERATED_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|png|webp|mp4)$/i;
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
 const DEFAULT_TOTAL_MAX_BYTES = 5 * 1024 * 1024 * 1024;
-
-export class MediaStoreError extends Error {
-  constructor(code) {
-    super(code);
-    this.name = 'MediaStoreError';
-    this.code = code;
-  }
-}
-
-function normalizeContentType(contentType) {
-  return String(contentType ?? '').split(';', 1)[0].trim().toLowerCase();
-}
 
 function normalizePositiveBytes(value, fallback) {
   const parsed = Number.parseInt(String(value ?? fallback), 10);
@@ -55,12 +31,16 @@ function notFound() {
   return new MediaStoreError('MEDIA_NOT_FOUND');
 }
 
-function mediaMetadata(key) {
-  const match = String(key ?? '').match(GENERATED_KEY);
-  if (!match) return null;
-  const contentType = EXTENSIONS[match[1].toLowerCase()];
-  const media = contentType ? MEDIA_TYPES[contentType] : null;
-  return media ? { contentType, type: media.type } : null;
+function keyFromUrl(value) {
+  try {
+    const url = new URL(String(value ?? ''));
+    const match = url.pathname.match(/^\/media\/([^/]+)$/);
+    if (!match) return null;
+    const key = decodeURIComponent(match[1]);
+    return mediaMetadataFromKey(key) ? key : null;
+  } catch {
+    return null;
+  }
 }
 
 export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes = DEFAULT_MAX_BYTES, totalMaxBytes = DEFAULT_TOTAL_MAX_BYTES } = {}) {
@@ -82,7 +62,7 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
     const assets = [];
     for (const entry of entries) {
       if (!entry.isFile()) continue;
-      const metadata = mediaMetadata(entry.name);
+      const metadata = mediaMetadataFromKey(entry.name);
       if (!metadata) continue;
       try {
         const fileStat = await stat(join(root, entry.name));
@@ -124,15 +104,9 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
     },
 
     async save(readable, { contentType } = {}) {
-      const normalizedType = normalizeContentType(contentType);
-      const media = Object.hasOwn(MEDIA_TYPES, normalizedType) ? MEDIA_TYPES[normalizedType] : null;
-      if (!media) throw new MediaStoreError('UNSUPPORTED_MEDIA_TYPE');
-      if (!readable || typeof readable[Symbol.asyncIterator] !== 'function') {
-        throw new MediaStoreError('EMPTY_MEDIA');
-      }
-
+      const { format, iterable } = createValidatedMediaIterable(readable, { contentType });
       const startingUsage = (await storageUsage()).usedBytes;
-      const key = `${randomUUID()}${media.extension}`;
+      const key = `${randomUUID()}${format.extension}`;
       const filePath = join(root, key);
       let fileHandle = null;
       let size = 0;
@@ -140,9 +114,7 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
 
       try {
         fileHandle = await open(filePath, 'wx');
-        for await (const chunk of readable) {
-          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-          if (bytes.length === 0) continue;
+        for await (const bytes of iterable) {
           size += bytes.length;
           if (size > byteLimit) throw new MediaStoreError('MEDIA_TOO_LARGE');
           if (startingUsage + size > totalByteLimit) throw new MediaStoreError('MEDIA_STORAGE_QUOTA_EXCEEDED');
@@ -153,7 +125,6 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
             offset += bytesWritten;
           }
         }
-        if (size === 0) throw new MediaStoreError('EMPTY_MEDIA');
         completed = true;
       } catch (error) {
         if (error instanceof MediaStoreError) throw error;
@@ -169,8 +140,8 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
 
       return {
         key,
-        type: media.type,
-        contentType: normalizedType,
+        type: format.type,
+        contentType: format.contentType,
         size,
         url: publicMediaUrl(baseUrl, key),
         isHttps: baseUrl.protocol === 'https:'
@@ -185,9 +156,11 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
       return storageUsage();
     },
 
+    keyFromUrl,
+
     async remove(key) {
       const value = String(key ?? '');
-      if (!mediaMetadata(value)) throw notFound();
+      if (!mediaMetadataFromKey(value)) throw notFound();
       const filePath = join(root, value);
       try {
         const fileStat = await stat(filePath);
@@ -202,7 +175,7 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
 
     async open(key) {
       const value = String(key ?? '');
-      const metadata = mediaMetadata(value);
+      const metadata = mediaMetadataFromKey(value);
       if (!metadata) throw notFound();
 
       const filePath = join(root, value);
