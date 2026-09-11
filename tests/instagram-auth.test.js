@@ -24,6 +24,26 @@ test('exchanges code for short token then long-lived token', async () => {
   assert.deepEqual(tokens, { accessToken:'long-token', refreshToken:null, expiresAt:'2026-09-10T13:00:00.000Z', scopes:['instagram_business_basic','instagram_business_content_publish'] });
 });
 
+test('refreshes a long-lived token through the Instagram refresh endpoint', async () => {
+  const calls = [];
+  const client = { async getGraph(path, options) { calls.push({ path, options }); return { access_token:'fresh-token', token_type:'bearer', expires_in:3600 }; } };
+  const provider = createInstagramOAuthProvider({ config, client, now: () => new Date('2026-09-11T12:00:00.000Z') });
+  const refreshed = await provider.refreshAccessToken({ accessToken:'old-long-token' });
+  assert.deepEqual(calls, [{
+    path:'/refresh_access_token',
+    options:{ versioned:false, query:{ grant_type:'ig_refresh_token', access_token:'old-long-token' } }
+  }]);
+  assert.deepEqual(refreshed, { accessToken:'fresh-token', expiresAt:'2026-09-11T13:00:00.000Z' });
+});
+
+test('rejects malformed refresh responses without exposing provider payloads', async () => {
+  const provider = createInstagramOAuthProvider({ config, client: { async getGraph(){ return { expires_in:3600, provider_secret:'must-not-leak' }; } } });
+  await assert.rejects(
+    () => provider.refreshAccessToken({ accessToken:'old-long-token' }),
+    (error) => error.code === 'AUTH_ERROR' && error.retryable === false && !String(error.message).includes('must-not-leak')
+  );
+});
+
 test('maps /me identity into the generic Srocial account shape', async () => {
   const client = { async getGraph(path, options) { assert.equal(path, '/me'); assert.equal(options.accessToken, 'long-token'); assert.equal(options.query.fields, 'id,username,account_type,profile_picture_url'); return { id:'178900', username:'dranimal', account_type:'BUSINESS', profile_picture_url:'https://cdn.example/avatar.jpg' }; } };
   const provider = createInstagramOAuthProvider({ config, client });
