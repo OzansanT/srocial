@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
+import { createAppAuth } from './auth/create-app-auth.js';
 import { createOAuthProviderRegistry } from './auth/oauth-provider-registry.js';
 import { createTokenCipher } from './auth/token-crypto.js';
 import { createRepositoryFromEnvironment } from './db/create-repository.js';
@@ -11,13 +12,14 @@ import { startSchedulerLoop } from './scheduler/start-scheduler-loop.js';
 
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 const host = process.env.HOST ?? '127.0.0.1';
+const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://${host}:${port}`;
+const appAuth = createAppAuth({ env: { ...process.env, PUBLIC_BASE_URL: publicBaseUrl } });
 const repository = createRepositoryFromEnvironment();
 await repository.initialize();
 
 const oauthProviderRegistry = createOAuthProviderRegistry();
 const platformRegistry = createPlatformRegistry();
 const tokenCipher = process.env.TOKEN_ENCRYPTION_KEY ? createTokenCipher(process.env.TOKEN_ENCRYPTION_KEY) : null;
-const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://${host}:${port}`;
 const mediaStore = createLocalMediaStore({
   rootDirectory: process.env.MEDIA_UPLOAD_DIR ?? './data/uploads',
   publicBaseUrl,
@@ -37,7 +39,7 @@ const schedulerLoop = startSchedulerLoop({
   tick: runSchedulerTick
 });
 
-const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, tokenCipher, publicBaseUrl, mediaStore }));
+const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, tokenCipher, publicBaseUrl, mediaStore, appAuth }));
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 
 let shuttingDown = false;
