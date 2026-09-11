@@ -39,7 +39,10 @@
     <main class="main-content" id="dashboard">
       <header class="page-header">
         <div><p class="eyebrow">Publishing operations</p><h1>Dashboard</h1><p class="page-header__copy">Plan, publish and monitor every channel from one operational view.</p></div>
-        <button class="button button--primary" id="focus-composer" type="button">Create post</button>
+        <div class="page-header__actions">
+          <button class="button button--secondary" id="logout-session" type="button" hidden>Sign out</button>
+          <button class="button button--primary" id="focus-composer" type="button">Create post</button>
+        </div>
       </header>
 
       <section class="metrics" aria-label="Publishing summary">

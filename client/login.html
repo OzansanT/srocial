@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Sign in to the Srocial administration dashboard">
+  <title>Srocial Login</title>
+  <link rel="stylesheet" href="/css/pages/login.css">
+</head>
+<body class="login-page">
+  <main class="login-shell">
+    <section class="login-card" aria-labelledby="login-title">
+      <div class="login-brand" aria-hidden="true">S</div>
+      <p class="login-eyebrow">Srocial administration</p>
+      <h1 id="login-title">Sign in</h1>
+      <p class="login-copy">Use the administrator credentials configured on the Srocial server.</p>
+
+      <form id="admin-login-form" class="login-form">
+        <label for="admin-username">Username</label>
+        <input id="admin-username" name="username" type="text" autocomplete="username" required autofocus>
+
+        <label for="admin-password">Password</label>
+        <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
+
+        <button id="login-submit" type="submit">Sign in</button>
+        <p id="login-feedback" class="login-feedback" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+  <script type="module" src="/js/pages/login.js"></script>
+</body>
+</html>

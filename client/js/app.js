@@ -1,3 +1,4 @@
+import { getSession, logout } from './api/auth-api.js';
 import { getDashboard, getHealth } from './api/dashboard-api.js';
 import { listPosts } from './api/posts-api.js';
 import { initializeAccounts } from './pages/accounts.js';
@@ -11,9 +12,42 @@ async function refreshPublishingData() {
   renderScheduledPosts(posts.posts ?? []);
 }
 
+async function initializeSessionControls() {
+  const logoutButton = document.querySelector('#logout-session');
+  if (!logoutButton) return;
+
+  try {
+    const session = await getSession();
+    if (!session?.authenticated) {
+      logoutButton.hidden = true;
+      return;
+    }
+    logoutButton.hidden = false;
+  } catch (error) {
+    if (error?.status === 401) {
+      window.location.replace('/login.html');
+      return;
+    }
+    logoutButton.hidden = true;
+    return;
+  }
+
+  logoutButton.addEventListener('click', async () => {
+    logoutButton.disabled = true;
+    try {
+      await logout();
+      window.location.replace('/login.html');
+    } catch (error) {
+      console.error('Logout failed', { status: error?.status ?? null });
+      logoutButton.disabled = false;
+    }
+  });
+}
+
 async function bootstrap() {
   const statusText = document.querySelector('#service-status');
   const statusDot = document.querySelector('.status-dot');
+  await initializeSessionControls();
   const composer = await initializeComposer({ onScheduled: refreshPublishingData });
   await initializeAccounts({ onChanged: composer.refreshAccounts });
   initializeMediaLibrary({ onUseMedia: composer.useMedia });

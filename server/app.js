@@ -31,9 +31,21 @@ const MEDIA_ERROR_RESPONSES = Object.freeze({
   MEDIA_STORAGE_QUOTA_EXCEEDED: { statusCode: 507, error: 'media_storage_quota_exceeded' },
   MEDIA_NOT_FOUND: { statusCode: 404, error: 'not_found' }
 });
+const PUBLIC_AUTH_ASSETS = new Set([
+  '/login.html',
+  '/css/pages/login.css',
+  '/js/api/client.js',
+  '/js/api/auth-api.js',
+  '/js/pages/login.js'
+]);
+const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+function sendJson(response, statusCode, payload, headers = {}) {
+  response.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    ...headers
+  });
   response.end(JSON.stringify(payload));
 }
 
@@ -79,6 +91,24 @@ function safeClientPath(pathname) {
   return join(CLIENT_ROOT, normalized);
 }
 
+function isApiRequest(pathname) {
+  return pathname === '/api' || pathname.startsWith('/api/');
+}
+
+function isMutation(method) {
+  return MUTATION_METHODS.has(String(method ?? '').toUpperCase());
+}
+
+function isPublicRoute(method, pathname) {
+  const normalizedMethod = String(method ?? 'GET').toUpperCase();
+  if (normalizedMethod === 'GET' && pathname === '/api/health') return true;
+  if (normalizedMethod === 'POST' && pathname === '/api/auth/login') return true;
+  if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && PUBLIC_AUTH_ASSETS.has(pathname)) return true;
+  if (normalizedMethod === 'GET' && /^\/api\/oauth\/[^/]+\/callback$/.test(pathname)) return true;
+  if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && /^\/media\/[^/]+$/.test(pathname)) return true;
+  return false;
+}
+
 async function serveStatic(pathname, response) {
   const filePath = safeClientPath(pathname);
   if (!filePath) return false;
@@ -96,10 +126,52 @@ async function serveStatic(pathname, response) {
   }
 }
 
-export function createRequestHandler({ repository = null, now = () => new Date(), oauthProviderRegistry = new Map(), tokenCipher = null, publicBaseUrl = 'http://127.0.0.1:3000', mediaStore = null } = {}) {
+export function createRequestHandler({ repository = null, now = () => new Date(), oauthProviderRegistry = new Map(), tokenCipher = null, publicBaseUrl = 'http://127.0.0.1:3000', mediaStore = null, appAuth = null } = {}) {
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
+
+      if (request.method === 'POST' && url.pathname === '/api/auth/login' && appAuth) {
+        const loginLimit = appAuth.consumeLogin(request);
+        if (!loginLimit.allowed) {
+          return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(loginLimit.retryAfterSeconds) });
+        }
+        const body = await readJsonBody(request);
+        const result = appAuth.login(body);
+        const headers = {};
+        if (result.setCookie) headers['set-cookie'] = result.setCookie;
+        return sendJson(response, result.statusCode, result.payload, headers);
+      }
+
+      let applicationSession = null;
+      if (appAuth?.enabled && !isPublicRoute(request.method, url.pathname)) {
+        applicationSession = appAuth.readSession(request);
+        if (!applicationSession) {
+          if (isApiRequest(url.pathname)) return sendJson(response, 401, { error: 'unauthorized' });
+          return sendRedirect(response, '/login.html');
+        }
+
+        if (isApiRequest(url.pathname)) {
+          const limit = appAuth.consumeApi(request);
+          if (!limit.allowed) {
+            return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(limit.retryAfterSeconds) });
+          }
+        }
+
+        if (isMutation(request.method) && !appAuth.validateMutation(request)) {
+          return sendJson(response, 403, { error: 'cross_site_request' });
+        }
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/auth/session' && appAuth) {
+        if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
+        return sendJson(response, 200, { authenticated: true, user: { username: applicationSession.username } });
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/auth/logout' && appAuth) {
+        if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
+        return sendJson(response, 200, { authenticated: false }, { 'set-cookie': appAuth.issueLogoutCookie() });
+      }
 
       if (request.method === 'GET' && url.pathname === '/api/health') {
         const health = await getHealthPayload(repository);
