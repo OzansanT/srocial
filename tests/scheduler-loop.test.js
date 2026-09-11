@@ -21,14 +21,30 @@ test('does not start unless both scheduler and real publish gates are enabled', 
   }
 });
 
-test('starts recurring ticks when both gates are enabled', async () => {
+test('starts recurring ticks and passes provider and token-refresh dependencies', async () => {
   const timer = timerHarness();
   const calls = [];
-  const loop = startSchedulerLoop({ enabled: true, allowRealPublish: true, repository: { name: 'repo' }, registry: new Map([['instagram', {}]]), intervalMs: 30000, workerId: 'worker-v6', setIntervalImpl: timer.setIntervalImpl, clearIntervalImpl: timer.clearIntervalImpl, tick: async (input) => { calls.push(input); return { claimed: 0 }; } });
+  const oauthRegistry = new Map([['instagram', { refreshAccessToken() {} }]]);
+  const tokenCipher = { encrypt() {}, decrypt() {} };
+  const loop = startSchedulerLoop({
+    enabled: true,
+    allowRealPublish: true,
+    repository: { name: 'repo' },
+    registry: new Map([['instagram', {}]]),
+    oauthRegistry,
+    tokenCipher,
+    intervalMs: 30000,
+    workerId: 'worker-v6',
+    setIntervalImpl: timer.setIntervalImpl,
+    clearIntervalImpl: timer.clearIntervalImpl,
+    tick: async (input) => { calls.push(input); return { claimed: 0 }; }
+  });
   assert.equal(loop.started, true);
   await timer.fire();
   assert.equal(calls.length, 1);
   assert.equal(calls[0].workerId, 'worker-v6');
+  assert.equal(calls[0].oauthRegistry, oauthRegistry);
+  assert.equal(calls[0].tokenCipher, tokenCipher);
 });
 
 test('skips overlapping interval callbacks while a tick is in flight', async () => {
