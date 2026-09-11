@@ -19,6 +19,8 @@ const now = new Date('2026-09-10T12:00:00.000Z');
 const future = '2026-09-11T10:00:00.000Z';
 const instagram = { id: 'acc-ig', provider: 'instagram', state: 'CONNECTED', displayName: 'IG Demo' };
 const facebook = { id: 'acc-fb', provider: 'facebook', state: 'CONNECTED', displayName: 'FB Demo' };
+const threads = { id: 'acc-th', provider: 'threads', state: 'CONNECTED', displayName: 'Threads Demo' };
+const tiktok = { id: 'acc-tt', provider: 'tiktok', state: 'CONNECTED', displayName: 'TikTok Demo' };
 const disconnected = { id: 'acc-off', provider: 'instagram', state: 'DISCONNECTED' };
 
 test('rejects an empty caption', async () => {
@@ -48,7 +50,12 @@ test('rejects a schedule that is not in the future', async () => {
 
 test('legacy platforms remain supported and create unbound publications', async () => {
   const repository = createRepository();
-  const result = await createScheduledPost(repository, { caption: '  New post  ', platforms: ['Instagram', 'threads', 'instagram'], scheduledAt: future }, { now });
+  const result = await createScheduledPost(repository, {
+    caption: '  New post  ',
+    platforms: ['Instagram', 'threads', 'instagram'],
+    media: [{ type: 'image', url: 'https://cdn.example.com/legacy.jpg' }],
+    scheduledAt: future
+  }, { now });
   assert.equal(result.post.caption, 'New post');
   assert.deepEqual(result.publications.map((item) => item.platform), ['instagram', 'threads']);
   assert.ok(result.publications.every((item) => item.accountId === null));
@@ -77,6 +84,7 @@ test('explicit destinations are deduplicated by platform and accountId', async (
   const result = await createScheduledPost(repository, {
     caption: 'Dedupe',
     destinations: [{ platform: 'Instagram', accountId: 'acc-ig' }, { platform: 'instagram', accountId: 'acc-ig' }],
+    media: [{ type: 'image', url: 'https://cdn.example.com/dedupe.jpg' }],
     scheduledAt: future
   }, { now });
   assert.equal(result.publications.length, 1);
@@ -87,7 +95,9 @@ test('rejects missing, disconnected, and cross-platform accounts', async () => {
   for (const [accountId, accounts] of [['missing', [instagram]], ['acc-off', [disconnected]], ['acc-fb', [facebook]]]) {
     const repository = createRepository({ accounts });
     await assert.rejects(() => createScheduledPost(repository, {
-      caption: 'Bad account', destinations: [{ platform: 'instagram', accountId }], scheduledAt: future
+      caption: 'Bad account', destinations: [{ platform: 'instagram', accountId }],
+      media: [{ type: 'image', url: 'https://cdn.example.com/account.jpg' }],
+      scheduledAt: future
     }, { now }), (error) => {
       assert.equal(error.code, 'VALIDATION_ERROR');
       assert.ok(error.details.some((item) => item.field === 'destinations'));
@@ -96,10 +106,51 @@ test('rejects missing, disconnected, and cross-platform accounts', async () => {
   }
 });
 
-test('persists media in input order', async () => {
-  const repository = createRepository({ accounts: [instagram] });
+test('rejects media counts that implemented provider adapters cannot publish before persistence', async () => {
+  const image = (name) => ({ type: 'image', url: `https://cdn.example.com/${name}.jpg` });
+  const cases = [
+    { account: instagram, platform: 'instagram', media: [] },
+    { account: instagram, platform: 'instagram', media: [image('one'), image('two')] },
+    { account: facebook, platform: 'facebook', media: [image('one'), image('two')] },
+    { account: threads, platform: 'threads', media: [image('one'), image('two')] }
+  ];
+
+  for (const { account, platform, media } of cases) {
+    const repository = createRepository({ accounts: [account] });
+    await assert.rejects(() => createScheduledPost(repository, {
+      caption: 'Provider contract',
+      destinations: [{ platform, accountId: account.id }],
+      media,
+      scheduledAt: future
+    }, { now }), (error) => {
+      assert.equal(error.code, 'VALIDATION_ERROR');
+      assert.ok(error.details.some((item) => item.field === 'media' && item.message.toLowerCase().includes(platform)));
+      return true;
+    });
+    assert.equal(repository.records.posts.length, 0);
+    assert.equal(repository.records.media.length, 0);
+    assert.equal(repository.records.publications.length, 0);
+    assert.equal(repository.records.jobs.length, 0);
+  }
+});
+
+test('allows text-only Facebook and Threads schedules', async () => {
+  for (const account of [facebook, threads]) {
+    const repository = createRepository({ accounts: [account] });
+    const result = await createScheduledPost(repository, {
+      caption: 'Text only',
+      destinations: [{ platform: account.provider, accountId: account.id }],
+      scheduledAt: future
+    }, { now });
+    assert.equal(result.media.length, 0);
+    assert.equal(result.publications.length, 1);
+  }
+});
+
+test('persists media in input order when no implemented adapter narrows the generic media limit', async () => {
+  const repository = createRepository({ accounts: [tiktok] });
   const result = await createScheduledPost(repository, {
-    caption: 'Media', destinations: [{ platform: 'instagram', accountId: 'acc-ig' }],
+    caption: 'Media', destinations: [{ platform: 'tiktok', accountId: 'acc-tt' }],
     media: [{ type: 'image', url: 'https://cdn.example.com/1.jpg' }, { type: 'video', url: 'https://cdn.example.com/2.mp4' }], scheduledAt: future
   }, { now });
   assert.deepEqual(result.media.map((item) => item.sortOrder), [0, 1]);
