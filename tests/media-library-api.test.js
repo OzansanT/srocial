@@ -10,6 +10,10 @@ import { createRequestHandler } from '../server/app.js';
 import { createJsonRepository } from '../server/db/json-repository.js';
 import { createLocalMediaStore } from '../server/media/local-media-store.js';
 
+const JPEG = Buffer.from([0xff, 0xd8, 0xff]);
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')]);
+
 async function withHarness(run, { totalMaxBytes = 1024 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'srocial-media-library-api-'));
   const repository = createJsonRepository({ filePath: join(directory, 'data.json') });
@@ -35,7 +39,7 @@ async function withHarness(run, { totalMaxBytes = 1024 } = {}) {
 
 test('GET /api/media returns assets, usage and reference state', async () => {
   await withHarness(async ({ base, repository, mediaStore }) => {
-    const upload = await mediaStore.save(Readable.from([Buffer.from('image')]), { contentType: 'image/jpeg' });
+    const upload = await mediaStore.save(Readable.from([JPEG]), { contentType: 'image/jpeg' });
     await repository.createMedia({ postId: 'p1', type: 'image', url: upload.url, sortOrder: 0 });
 
     const response = await fetch(`${base}/api/media`);
@@ -44,7 +48,7 @@ test('GET /api/media returns assets, usage and reference state', async () => {
     assert.equal(payload.assets.length, 1);
     assert.equal(payload.assets[0].key, upload.key);
     assert.equal(payload.assets[0].referenced, true);
-    assert.equal(payload.usage.usedBytes, 5);
+    assert.equal(payload.usage.usedBytes, JPEG.length);
     assert.equal(payload.usage.count, 1);
     assert.equal(JSON.stringify(payload).includes('srocial-media-library-api-'), false);
   });
@@ -52,7 +56,7 @@ test('GET /api/media returns assets, usage and reference state', async () => {
 
 test('DELETE /api/media/:key deletes unreferenced assets', async () => {
   await withHarness(async ({ base, mediaStore }) => {
-    const upload = await mediaStore.save(Readable.from([Buffer.from('image')]), { contentType: 'image/png' });
+    const upload = await mediaStore.save(Readable.from([PNG]), { contentType: 'image/png' });
     const response = await fetch(`${base}/api/media/${encodeURIComponent(upload.key)}`, { method: 'DELETE' });
     assert.equal(response.status, 204);
     await assert.rejects(() => mediaStore.open(upload.key), (error) => error?.code === 'MEDIA_NOT_FOUND');
@@ -61,7 +65,7 @@ test('DELETE /api/media/:key deletes unreferenced assets', async () => {
 
 test('DELETE /api/media/:key refuses referenced assets even when stored host differs', async () => {
   await withHarness(async ({ base, repository, mediaStore }) => {
-    const upload = await mediaStore.save(Readable.from([Buffer.from('image')]), { contentType: 'image/webp' });
+    const upload = await mediaStore.save(Readable.from([WEBP]), { contentType: 'image/webp' });
     await repository.createMedia({
       postId: 'p1',
       type: 'image',
@@ -79,11 +83,11 @@ test('DELETE /api/media/:key refuses referenced assets even when stored host dif
 test('upload quota failures map to HTTP 507', async () => {
   await withHarness(async ({ base }) => {
     const first = await fetch(`${base}/api/media/uploads`, {
-      method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: Buffer.from('abc')
+      method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: JPEG
     });
     assert.equal(first.status, 201);
     const second = await fetch(`${base}/api/media/uploads`, {
-      method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: Buffer.from('de')
+      method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: JPEG
     });
     assert.equal(second.status, 507);
     assert.deepEqual(await second.json(), { error: 'media_storage_quota_exceeded' });
