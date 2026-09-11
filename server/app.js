@@ -7,6 +7,7 @@ import { getDashboardPayload } from './routes/dashboard.js';
 import { createPostPayload, listPostsPayload } from './routes/posts.js';
 import { disconnectAccountPayload, listAccountsPayload } from './routes/accounts.js';
 import { completeOAuthPayload, startOAuthPayload } from './routes/oauth.js';
+import { deleteMediaPayload, listMediaPayload } from './routes/media.js';
 
 const CLIENT_ROOT = fileURLToPath(new URL('../client/', import.meta.url));
 const CONTENT_TYPES = Object.freeze({
@@ -27,12 +28,18 @@ const MEDIA_ERROR_RESPONSES = Object.freeze({
   UNSUPPORTED_MEDIA_TYPE: { statusCode: 415, error: 'unsupported_media_type' },
   EMPTY_MEDIA: { statusCode: 400, error: 'empty_media' },
   MEDIA_TOO_LARGE: { statusCode: 413, error: 'media_too_large' },
+  MEDIA_STORAGE_QUOTA_EXCEEDED: { statusCode: 507, error: 'media_storage_quota_exceeded' },
   MEDIA_NOT_FOUND: { statusCode: 404, error: 'not_found' }
 });
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   response.end(JSON.stringify(payload));
+}
+
+function sendNoContent(response) {
+  response.writeHead(204, { 'cache-control': 'no-store' });
+  response.end();
 }
 
 function sendRedirect(response, location) {
@@ -97,11 +104,35 @@ export function createRequestHandler({ repository = null, now = () => new Date()
       if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, getHealthPayload());
       if (request.method === 'GET' && url.pathname === '/api/dashboard') return sendJson(response, 200, await getDashboardPayload(repository));
 
+      if (request.method === 'GET' && url.pathname === '/api/media') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        if (!mediaStore) return sendJson(response, 503, { error: 'media_storage_unavailable' });
+        const result = await listMediaPayload(repository, mediaStore);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/media/uploads') {
         if (!mediaStore) return sendJson(response, 503, { error: 'media_storage_unavailable' });
         try {
           const upload = await mediaStore.save(request, { contentType: request.headers['content-type'] });
           return sendJson(response, 201, { upload });
+        } catch (error) {
+          const mapped = mediaErrorResponse(error);
+          if (mapped) return sendJson(response, mapped.statusCode, { error: mapped.error });
+          throw error;
+        }
+      }
+
+      const mediaApiMatch = url.pathname.match(/^\/api\/media\/([^/]+)$/);
+      if (request.method === 'DELETE' && mediaApiMatch) {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        if (!mediaStore) return sendJson(response, 503, { error: 'media_storage_unavailable' });
+        const key = decodeMediaKey(mediaApiMatch[1]);
+        if (!key) return sendJson(response, 404, { error: 'not_found' });
+        try {
+          const result = await deleteMediaPayload(repository, mediaStore, key);
+          if (result.statusCode === 204) return sendNoContent(response);
+          return sendJson(response, result.statusCode, result.payload);
         } catch (error) {
           const mapped = mediaErrorResponse(error);
           if (mapped) return sendJson(response, mapped.statusCode, { error: mapped.error });

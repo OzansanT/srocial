@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, open, rm, stat } from 'node:fs/promises';
+import { mkdir, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const MEDIA_TYPES = Object.freeze({
@@ -19,6 +19,7 @@ const EXTENSIONS = Object.freeze({
 
 const GENERATED_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|png|webp|mp4)$/i;
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
+const DEFAULT_TOTAL_MAX_BYTES = 5 * 1024 * 1024 * 1024;
 
 export class MediaStoreError extends Error {
   constructor(code) {
@@ -32,9 +33,9 @@ function normalizeContentType(contentType) {
   return String(contentType ?? '').split(';', 1)[0].trim().toLowerCase();
 }
 
-function normalizeMaxBytes(value) {
-  const parsed = Number.parseInt(String(value ?? DEFAULT_MAX_BYTES), 10);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_BYTES;
+function normalizePositiveBytes(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? fallback), 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function normalizePublicBaseUrl(value) {
@@ -54,11 +55,68 @@ function notFound() {
   return new MediaStoreError('MEDIA_NOT_FOUND');
 }
 
-export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes = DEFAULT_MAX_BYTES } = {}) {
+function mediaMetadata(key) {
+  const match = String(key ?? '').match(GENERATED_KEY);
+  if (!match) return null;
+  const contentType = EXTENSIONS[match[1].toLowerCase()];
+  const media = contentType ? MEDIA_TYPES[contentType] : null;
+  return media ? { contentType, type: media.type } : null;
+}
+
+export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes = DEFAULT_MAX_BYTES, totalMaxBytes = DEFAULT_TOTAL_MAX_BYTES } = {}) {
   const root = String(rootDirectory ?? '').trim();
   if (!root) throw new Error('MEDIA_UPLOAD_DIRECTORY_REQUIRED');
   const baseUrl = normalizePublicBaseUrl(publicBaseUrl);
-  const byteLimit = normalizeMaxBytes(maxBytes);
+  const byteLimit = normalizePositiveBytes(maxBytes, DEFAULT_MAX_BYTES);
+  const totalByteLimit = normalizePositiveBytes(totalMaxBytes, DEFAULT_TOTAL_MAX_BYTES);
+
+  async function listAssets() {
+    let entries;
+    try {
+      entries = await readdir(root, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === 'ENOENT') return [];
+      throw new MediaStoreError('MEDIA_STORAGE_ERROR');
+    }
+
+    const assets = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const metadata = mediaMetadata(entry.name);
+      if (!metadata) continue;
+      try {
+        const fileStat = await stat(join(root, entry.name));
+        if (!fileStat.isFile()) continue;
+        assets.push({
+          key: entry.name,
+          type: metadata.type,
+          contentType: metadata.contentType,
+          size: fileStat.size,
+          url: publicMediaUrl(baseUrl, entry.name),
+          isHttps: baseUrl.protocol === 'https:',
+          modifiedAt: fileStat.mtime.toISOString(),
+          modifiedMs: fileStat.mtimeMs
+        });
+      } catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw new MediaStoreError('MEDIA_STORAGE_ERROR');
+      }
+    }
+
+    assets.sort((a, b) => b.modifiedMs - a.modifiedMs || a.key.localeCompare(b.key));
+    return assets.map(({ modifiedMs, ...asset }) => asset);
+  }
+
+  async function storageUsage() {
+    const assets = await listAssets();
+    const usedBytes = assets.reduce((total, asset) => total + asset.size, 0);
+    return {
+      usedBytes,
+      maxBytes: totalByteLimit,
+      remainingBytes: Math.max(0, totalByteLimit - usedBytes),
+      count: assets.length
+    };
+  }
 
   return {
     async initialize() {
@@ -73,6 +131,7 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
         throw new MediaStoreError('EMPTY_MEDIA');
       }
 
+      const startingUsage = (await storageUsage()).usedBytes;
       const key = `${randomUUID()}${media.extension}`;
       const filePath = join(root, key);
       let fileHandle = null;
@@ -86,6 +145,7 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
           if (bytes.length === 0) continue;
           size += bytes.length;
           if (size > byteLimit) throw new MediaStoreError('MEDIA_TOO_LARGE');
+          if (startingUsage + size > totalByteLimit) throw new MediaStoreError('MEDIA_STORAGE_QUOTA_EXCEEDED');
           let offset = 0;
           while (offset < bytes.length) {
             const { bytesWritten } = await fileHandle.write(bytes, offset, bytes.length - offset);
@@ -117,12 +177,33 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
       };
     },
 
+    list() {
+      return listAssets();
+    },
+
+    usage() {
+      return storageUsage();
+    },
+
+    async remove(key) {
+      const value = String(key ?? '');
+      if (!mediaMetadata(value)) throw notFound();
+      const filePath = join(root, value);
+      try {
+        const fileStat = await stat(filePath);
+        if (!fileStat.isFile()) throw notFound();
+        await rm(filePath);
+      } catch (error) {
+        if (error instanceof MediaStoreError) throw error;
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') throw notFound();
+        throw new MediaStoreError('MEDIA_STORAGE_ERROR');
+      }
+    },
+
     async open(key) {
       const value = String(key ?? '');
-      const match = value.match(GENERATED_KEY);
-      if (!match) throw notFound();
-      const contentType = EXTENSIONS[match[1].toLowerCase()];
-      if (!contentType) throw notFound();
+      const metadata = mediaMetadata(value);
+      if (!metadata) throw notFound();
 
       const filePath = join(root, value);
       let fileStat;
@@ -137,7 +218,7 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
       return {
         key: value,
         stream: createReadStream(filePath),
-        contentType,
+        contentType: metadata.contentType,
         size: fileStat.size
       };
     }

@@ -85,6 +85,7 @@ export function createJsonRepository({ filePath }) {
       });
     },
     createMedia(record) { return mutate('media', record); },
+    listMedia() { return stableRead(() => [...data.media]); },
     listMediaForPost(postId) {
       return stableRead(() => data.media
         .filter((item) => item.postId === postId)
