@@ -6,6 +6,7 @@ const SOCIAL_PLATFORMS = ['instagram', 'facebook', 'threads', 'tiktok'];
 const UPLOAD_ERRORS = Object.freeze({
   unsupported_media_type: 'Choose a JPEG, PNG, WebP, or MP4 file.',
   media_too_large: 'This file is too large for the server upload limit.',
+  media_storage_quota_exceeded: 'Media storage is full. Delete unused files from the Media Library or increase the storage quota.',
   empty_media: 'This file is empty. Choose another file.',
   media_storage_unavailable: 'Media uploads are currently unavailable.'
 });
@@ -90,7 +91,9 @@ export async function initializeComposer({ onScheduled } = {}) {
   const scheduleInput = document.querySelector('#scheduled-at');
   const feedback = document.querySelector('#composer-feedback');
   const focusButton = document.querySelector('#focus-composer');
-  if (!form || !scheduleInput || !feedback) return { refreshAccounts: async () => [] };
+  if (!form || !scheduleInput || !feedback) {
+    return { refreshAccounts: async () => [], useMedia: () => false };
+  }
 
   const fileInput = document.querySelector('#media-file');
   const uploadButton = document.querySelector('#upload-media');
@@ -105,6 +108,21 @@ export async function initializeComposer({ onScheduled } = {}) {
     for (const control of [uploadButton, fileInput, mediaUrl, mediaType, submitButton]) {
       if (control) control.disabled = uploading || scheduling;
     }
+  }
+
+  function useMedia({ type, url } = {}) {
+    const normalizedType = String(type ?? '').trim().toLowerCase();
+    const normalizedUrl = String(url ?? '').trim();
+    if (!mediaUrl || !mediaType || !['image', 'video'].includes(normalizedType) || !normalizedUrl) return false;
+    mediaUrl.value = normalizedUrl;
+    mediaType.value = normalizedType;
+    if (uploadFeedback) {
+      uploadFeedback.dataset.state = normalizedUrl.startsWith('https://') ? 'success' : 'warning';
+      uploadFeedback.textContent = normalizedUrl.startsWith('https://')
+        ? 'Media selected from library.'
+        : 'Media selected, but provider publishing requires a public HTTPS URL.';
+    }
+    return true;
   }
 
   uploadButton?.addEventListener('click', async () => {
@@ -184,5 +202,5 @@ export async function initializeComposer({ onScheduled } = {}) {
     }
   });
 
-  return { refreshAccounts };
+  return { refreshAccounts, useMedia };
 }
