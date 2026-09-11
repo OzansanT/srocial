@@ -67,6 +67,8 @@ export function createJsonRepository({ filePath }) {
         await persist();
       }
     },
+    async healthCheck() { return { ok: true, backend: 'json' }; },
+    async close() {},
     createAccount(record) { return mutate('accounts', record); },
     updateAccount(id, patch) { return update('accounts', id, patch); },
     getAccount(id) { return stableRead(() => data.accounts.find((item) => item.id === id) ?? null); },

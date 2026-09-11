@@ -101,7 +101,10 @@ export function createRequestHandler({ repository = null, now = () => new Date()
     try {
       const url = new URL(request.url, 'http://localhost');
 
-      if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, getHealthPayload());
+      if (request.method === 'GET' && url.pathname === '/api/health') {
+        const health = await getHealthPayload(repository);
+        return sendJson(response, health.ok ? 200 : 503, health);
+      }
       if (request.method === 'GET' && url.pathname === '/api/dashboard') return sendJson(response, 200, await getDashboardPayload(repository));
 
       if (request.method === 'GET' && url.pathname === '/api/media') {

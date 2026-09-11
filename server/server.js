@@ -41,15 +41,25 @@ const server = createServer(createRequestHandler({ repository, oauthProviderRegi
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 
 let shuttingDown = false;
+async function closeRepository() {
+  try {
+    await repository.close?.();
+  } catch (error) {
+    console.error('Srocial repository shutdown failed', { code: error?.code ?? 'REPOSITORY_CLOSE_ERROR' });
+    process.exitCode = 1;
+  }
+}
+
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   schedulerLoop.stop();
-  server.close((error) => {
+  server.close(async (error) => {
     if (error) {
       console.error('Srocial shutdown failed', { code: error?.code ?? 'SERVER_CLOSE_ERROR' });
       process.exitCode = 1;
     }
+    await closeRepository();
   });
 }
 

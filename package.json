@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "node server/server.js",
+    "db:migrate": "node server/db/migrate.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   },
   "engines": {
     "node": ">=20"

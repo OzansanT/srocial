@@ -1,12 +1,10 @@
 # How to Run Srocial — Beginner Guide
 
-This guide explains how to run Srocial locally, connect Instagram from the browser, schedule account-bound content, manage uploaded media, and keep real publishing disabled until you intentionally enable it.
+This guide explains how to install and run Srocial, use the default JSON repository, optionally configure PostgreSQL, connect Instagram, schedule posts, manage uploaded media, and keep real publishing disabled until you intentionally enable it.
 
 ## 1. Install Node.js
 
-Srocial requires Node.js 20 or newer.
-
-After installing the current Node.js LTS release, open a new terminal and check:
+Srocial requires Node.js 20 or newer. Check your installation:
 
 ```text
 node -v
@@ -22,7 +20,7 @@ Node 20, 22, or newer is suitable.
 1. Open the `OzansanT/srocial` repository on GitHub.
 2. Click **Code** > **Download ZIP**.
 3. Extract the ZIP.
-4. Open the extracted `srocial` folder.
+4. Open the extracted `srocial` folder in a terminal.
 
 ### Git clone
 
@@ -31,11 +29,28 @@ git clone https://github.com/OzansanT/srocial.git
 cd srocial
 ```
 
-## 3. Start in safe mode
+## 3. Install dependencies
 
-The current runtime has no external npm dependencies, so `npm install` is not required.
+V10 uses the PostgreSQL `pg` client package, so dependency installation is required even if you plan to use the default JSON repository.
 
 Run:
+
+```bash
+npm install
+```
+
+## 4. Start in safe JSON mode
+
+The default database configuration is:
+
+```text
+DATABASE_DRIVER=json
+DATA_FILE=./data/srocial.json
+```
+
+You do not need PostgreSQL for ordinary local development.
+
+Start Srocial:
 
 ```bash
 npm start
@@ -47,34 +62,133 @@ Open:
 http://127.0.0.1:3000
 ```
 
-The default safety configuration is:
+Publishing safety defaults are:
 
 ```text
 ALLOW_REAL_PUBLISH=false
 SCHEDULER_ENABLED=false
 ```
 
-Keep both values false while learning or testing. With these defaults, the recurring real-publish scheduler does not start.
+Keep both false while learning or testing.
 
-## 4. What V9 includes
+## 5. What V10 adds
 
-The dashboard contains an **Accounts** section. Instagram can be managed from the browser with:
+V10 makes PostgreSQL a real production repository instead of only a future schema target.
+
+It adds:
+
+- explicit `DATABASE_DRIVER=json|postgres` selection;
+- complete PostgreSQL persistence for accounts, OAuth state, posts, media, publications, and scheduler jobs;
+- atomic concurrent scheduler claims using PostgreSQL row locks and `SKIP LOCKED`;
+- stale-lock recovery with the same rules as the JSON repository;
+- explicit checksum-verified migrations through `npm run db:migrate`;
+- startup schema verification without automatic migrations;
+- database-aware `/api/health` responses;
+- graceful PostgreSQL pool shutdown;
+- real PostgreSQL integration tests in GitHub Actions.
+
+The dashboard, Media Library, Instagram connection flow, and safe publishing gates continue to work as before.
+
+## 6. Use PostgreSQL instead of JSON
+
+You need an accessible PostgreSQL database and a connection string such as:
 
 ```text
-Connect Instagram
-Reconnect
-Disconnect
+postgres://USER:PASSWORD@HOST:5432/DATABASE
 ```
 
-The composer schedules a specific connected account rather than guessing an account from a platform name.
+Never commit the real connection string to GitHub.
 
-You can upload JPEG, PNG, WebP, or MP4 media from the composer. The default per-file limit is 50 MiB. A successful upload fills the media URL and type automatically; you can still paste an existing HTTPS media URL instead.
+### PowerShell
 
-V9 adds a **Media Library**. Uploaded files can be previewed, copied, reused in the composer, and deleted when they are not referenced by a persisted post. The library also shows current storage usage. The default total local-media quota is 5 GiB.
+```powershell
+$env:DATABASE_DRIVER="postgres"
+$env:DATABASE_URL="postgres://USER:PASSWORD@HOST:5432/DATABASE"
+```
 
-## 5. Configure Instagram
+### Command Prompt
 
-Before the **Connect Instagram** flow can work, the running server needs:
+```bat
+set DATABASE_DRIVER=postgres
+set DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DATABASE
+```
+
+### macOS/Linux
+
+```bash
+export DATABASE_DRIVER=postgres
+export DATABASE_URL="postgres://USER:PASSWORD@HOST:5432/DATABASE"
+```
+
+`DATABASE_URL` does not switch Srocial to PostgreSQL by itself. `DATABASE_DRIVER=postgres` must also be set.
+
+## 7. Run PostgreSQL migrations
+
+Before the first PostgreSQL startup, run:
+
+```bash
+npm run db:migrate
+```
+
+A successful run prints migration names and whether each migration was applied or skipped.
+
+Run the command again whenever a new migration is shipped.
+
+### Important migration rule
+
+`npm start` does **not** apply migrations automatically.
+
+When PostgreSQL is selected, startup verifies that the required tables already exist. If they do not, startup fails with:
+
+```text
+DATABASE_MIGRATIONS_REQUIRED
+```
+
+Run `npm run db:migrate`, then start the application again.
+
+Applied migrations are recorded in `srocial_migrations` with SHA-256 checksums. If an already-applied migration file is later changed, the migration command refuses to continue. Add a new migration instead of editing historical migration files.
+
+## 8. Start with PostgreSQL
+
+After migrations:
+
+```bash
+npm start
+```
+
+The same dashboard is available at the configured `HOST` and `PORT`.
+
+When the process stops, Srocial closes the PostgreSQL connection pool after stopping the scheduler and HTTP server.
+
+## 9. Check health
+
+Open or request:
+
+```text
+GET /api/health
+```
+
+A healthy JSON installation includes:
+
+```json
+{
+  "ok": true,
+  "service": "srocial",
+  "version": "0.1.0",
+  "database": {
+    "ok": true,
+    "backend": "json"
+  }
+}
+```
+
+With PostgreSQL selected, `backend` is `postgres` and the health check performs a live database query.
+
+If database health fails, Srocial returns HTTP `503` with sanitized information only. Database passwords, hosts, usernames, connection strings, and raw driver errors are not returned.
+
+## 10. Configure Instagram
+
+Before **Connect Instagram** can work, the running process needs:
 
 ```text
 INSTAGRAM_APP_ID
@@ -89,8 +203,6 @@ Optional:
 INSTAGRAM_API_VERSION=v26.0
 ```
 
-Never commit real values to GitHub.
-
 ### PowerShell example
 
 ```powershell
@@ -101,50 +213,29 @@ $env:PUBLIC_BASE_URL="http://127.0.0.1:3000"
 npm start
 ```
 
-### Command Prompt example
+Srocial does not automatically load `.env` files through `dotenv`. Supply settings through your shell, process manager, container, or deployment environment.
 
-```bat
-set INSTAGRAM_APP_ID=YOUR_APP_ID
-set INSTAGRAM_APP_SECRET=YOUR_APP_SECRET
-set TOKEN_ENCRYPTION_KEY=YOUR_LONG_PRIVATE_ENCRYPTION_SECRET
-set PUBLIC_BASE_URL=http://127.0.0.1:3000
-npm start
-```
+## 11. Configure the Instagram callback
 
-### macOS/Linux example
-
-```bash
-INSTAGRAM_APP_ID="YOUR_APP_ID" \
-INSTAGRAM_APP_SECRET="YOUR_APP_SECRET" \
-TOKEN_ENCRYPTION_KEY="YOUR_LONG_PRIVATE_ENCRYPTION_SECRET" \
-PUBLIC_BASE_URL="http://127.0.0.1:3000" \
-npm start
-```
-
-The current project does **not** automatically load a `.env` file through `dotenv`. Supply values through your shell/process or deployment environment.
-
-## 6. Configure the Instagram callback
-
-With the default local address, Srocial constructs this callback URI:
+With the default local address, the callback is:
 
 ```text
 http://127.0.0.1:3000/api/oauth/instagram/callback
 ```
 
-Your Instagram/Meta application must allow the exact callback URI used by the running Srocial installation.
+Your Instagram/Meta application must allow the exact callback URI used by Srocial.
 
-For a deployed installation, set `PUBLIC_BASE_URL` to your actual public HTTPS Srocial base URL and configure the matching callback in the provider application.
+For deployment, set `PUBLIC_BASE_URL` to the actual externally reachable HTTPS Srocial origin and configure the matching callback at the provider.
 
-## 7. Connect Instagram from the dashboard
+## 12. Connect Instagram
 
 1. Start Srocial with the Instagram environment variables configured.
-2. Open `http://127.0.0.1:3000`.
-3. Scroll to **Accounts**, or click **Accounts** in the sidebar.
+2. Open the dashboard.
+3. Go to **Accounts**.
 4. Click **Connect Instagram**.
-5. Complete the provider authorization.
-6. Instagram redirects back to the Srocial callback.
-7. Srocial exchanges the authorization result server-side, encrypts the token, and redirects you back to the **Accounts** section.
-8. The page displays a safe connection result and lists the connected account.
+5. Complete provider authorization.
+6. Instagram redirects to Srocial.
+7. Srocial exchanges the result server-side, encrypts the credential, and returns you to **Accounts**.
 
 The dashboard URL receives only safe values such as:
 
@@ -152,35 +243,26 @@ The dashboard URL receives only safe values such as:
 ?oauth=instagram&status=connected
 ```
 
-or a sanitized error code such as:
+or a sanitized error code. Provider access tokens, authorization codes, OAuth state values, and raw provider errors are not copied into the browser URL.
 
-```text
-?oauth=instagram&status=error&code=oauth_state_invalid
-```
+## 13. Reconnect or disconnect Instagram
 
-Provider access tokens, authorization codes, OAuth state values, and raw provider errors are not copied into the dashboard URL.
+For an existing account:
 
-## 8. Reconnect or disconnect an account
+- **Reconnect** starts OAuth again.
+- **Disconnect** clears stored credential material and marks the account `DISCONNECTED`.
 
-For an existing Instagram account:
+After disconnect, the account can no longer be selected for a new publication.
 
-- **Reconnect** starts the Instagram OAuth flow again.
-- **Disconnect** clears stored credential material for that Srocial account and marks it `DISCONNECTED`.
-
-After a disconnect, the Accounts list and composer selectors refresh automatically. A disconnected account can no longer be selected for a new scheduled publication.
-
-## 9. Schedule an Instagram post
-
-Once Instagram is connected:
+## 14. Schedule an Instagram post
 
 1. Open **Create social post**.
 2. Enter a caption.
 3. Check **Instagram**.
-4. Choose the connected Instagram account.
-5. Under **Upload media**, select a file and click **Upload file**. Wait for the result. The media URL and type are filled automatically.
-6. Alternatively, open **Media** and click **Use in composer** on an existing asset, or paste an externally reachable HTTPS media URL.
-7. Choose a future publish time.
-8. Click **Schedule**.
+4. Choose the connected account.
+5. Upload a JPEG, PNG, WebP, or MP4, select an existing asset from **Media**, or enter an HTTPS media URL.
+6. Choose a future publish time.
+7. Click **Schedule**.
 
 Srocial creates:
 
@@ -191,28 +273,22 @@ Post
   -> SOCIAL_PUBLICATION scheduler job
 ```
 
-The media URL must be HTTPS and reachable by Instagram. A local HTTP upload shows a warning and cannot be scheduled for provider publishing. Set `PUBLIC_BASE_URL` to the actual public HTTPS Srocial address, restart, and upload again (or enter the correct HTTPS URL). Changing the setting does not update previously generated links.
+Instagram must be able to retrieve the media from an externally reachable HTTPS URL.
 
-Uploads are accessible to anyone with their link. Upload only media you intend to make public. The development app has no login or upload authorization: before public deployment, protect the dashboard and `/api/` with authenticated access and request limits; keep `/media/` retrievable by the provider.
+## 15. Manage the Media Library
 
-## 10. Manage the Media Library
-
-Open **Media** in the sidebar. The library shows uploaded assets and storage usage.
+Open **Media** in the sidebar.
 
 Available actions:
 
-- **Use in composer** fills the composer's media URL and type without scheduling anything.
-- **Copy URL** copies the public media URL when browser clipboard access is available.
-- **Delete** removes an unused uploaded asset.
-- **Refresh** reloads the inventory and storage usage.
+- **Use in composer**
+- **Copy URL**
+- **Delete** unused media
+- **Refresh**
 
-A file referenced by any persisted post is marked **In use** and cannot be deleted. The server enforces this protection even if the UI is bypassed. Deleting an unreferenced file is permanent.
+A persisted post reference marks the asset **In use**. The server refuses deletion even if the UI is bypassed.
 
-The library inventory comes from the configured upload directory. It does not expose local file-system paths.
-
-## 11. Configure media limits
-
-Default media settings are:
+Defaults:
 
 ```text
 MEDIA_UPLOAD_DIR=./data/uploads
@@ -220,55 +296,18 @@ MEDIA_UPLOAD_MAX_BYTES=52428800
 MEDIA_UPLOAD_TOTAL_MAX_BYTES=5368709120
 ```
 
-`MEDIA_UPLOAD_MAX_BYTES` is the per-file limit (`52428800` = 50 MiB).
+Uploads are public to anyone with their URL. The application does not yet provide login/upload authorization, so do not expose `/api/` publicly without an authentication and request-limiting layer.
 
-`MEDIA_UPLOAD_TOTAL_MAX_BYTES` is the total local-media quota (`5368709120` = 5 GiB). When an upload would exceed the total quota, Srocial rejects it and removes its partial file.
+## 16. Enable real scheduled publishing
 
-PowerShell example:
-
-```powershell
-$env:MEDIA_UPLOAD_DIR="./data/uploads"
-$env:MEDIA_UPLOAD_MAX_BYTES="104857600"
-$env:MEDIA_UPLOAD_TOTAL_MAX_BYTES="10737418240"
-npm start
-```
-
-That example allows up to 100 MiB per file and 10 GiB total. Use the environment-variable syntax from section 5 for other shells. Editing `.env.example` alone does not configure the running server.
-
-## 12. Safe local scheduling without a real account
-
-The browser composer intentionally requires a connected account. For internal development testing only, the legacy API can create an unbound publication.
-
-### PowerShell
-
-With Srocial already running:
-
-```powershell
-$body = @{
-  caption = "My local Srocial test"
-  platforms = @("instagram")
-  scheduledAt = (Get-Date).AddHours(1).ToUniversalTime().ToString("o")
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:3000/api/posts" `
-  -Method Post `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-This creates a publication with no real account binding. Do not use legacy unbound publications for real provider publishing.
-
-## 13. Enabling real scheduled publishing
-
-Real recurring execution starts only when **both** flags are true:
+Real recurring execution starts only when both values are true:
 
 ```text
 ALLOW_REAL_PUBLISH=true
 SCHEDULER_ENABLED=true
 ```
 
-Example PowerShell session:
+PowerShell example:
 
 ```powershell
 $env:ALLOW_REAL_PUBLISH="true"
@@ -277,18 +316,11 @@ $env:SCHEDULER_INTERVAL_MS="30000"
 npm start
 ```
 
-Enable this only when:
+Enable this only when the intended account, media, caption, and schedule are correct.
 
-- the intended provider account is connected;
-- the media URL is correct and externally reachable;
-- the caption and schedule are correct;
-- you intend Srocial to call the real provider API.
+## 17. Scheduler behavior
 
-Setting only one flag is not enough.
-
-## 14. What the scheduler does
-
-When enabled, Srocial repeatedly performs:
+The scheduler performs:
 
 ```text
 find due jobs
@@ -299,45 +331,39 @@ find due jobs
  -> complete / retry / status-check
 ```
 
-The recurring loop refuses overlapping ticks. Repository locks and publication idempotency checks provide additional duplicate-publish protection.
+With PostgreSQL, the claim operation uses `FOR UPDATE SKIP LOCKED` so concurrent workers do not claim the same due row. Stale running locks can still be recovered after the configured lock timeout.
 
-## 15. JSON OAuth API clients
+## 18. Local data and backups
 
-Normal browser OAuth callbacks redirect back to the dashboard.
-
-An API client that explicitly sends:
-
-```http
-Accept: application/json
-```
-
-continues to receive the safe JSON callback response instead of the browser `303` redirect. This preserves the existing API contract for tests and programmatic clients.
-
-## 16. Local data
-
-Development state is stored in:
+With JSON mode, runtime records are stored in:
 
 ```text
 data/srocial.json
 ```
 
-It can contain posts, media, publications, scheduler jobs, accounts, and OAuth-state records.
+Uploaded files are stored separately in:
 
-Uploaded files are stored separately in `data/uploads/`. Keep and back up both locations. The Media Library can delete unused uploaded files, but it deliberately refuses to delete a file referenced by a persisted post.
+```text
+data/uploads/
+```
 
-Do not manually insert raw provider credentials. Srocial stores connected-account token material encrypted.
+Back up both when using local JSON/media storage.
 
-## 17. Run tests
+With PostgreSQL mode, back up the PostgreSQL database using your normal database backup process **and** back up `MEDIA_UPLOAD_DIR`. PostgreSQL persistence does not move uploaded file bytes into the database.
+
+## 19. Run tests
+
+Install dependencies first, then run:
 
 ```bash
 npm test
 ```
 
-A successful run ends with zero failed tests.
+The normal local test suite may skip PostgreSQL integration tests unless `TEST_POSTGRES_URL` is configured.
 
-GitHub Actions also runs the full Node test suite and JavaScript syntax checks on build branches, pull requests, and `main`.
+GitHub Actions automatically starts PostgreSQL 17, runs the real migration command, runs all tests including PostgreSQL integration/concurrency tests, and performs JavaScript syntax checks.
 
-## 18. Stop Srocial
+## 20. Stop Srocial
 
 Press:
 
@@ -345,107 +371,113 @@ Press:
 Ctrl + C
 ```
 
-The HTTP server and recurring scheduler timer stop cleanly. Local JSON data and uploaded media remain on disk.
+Srocial stops the scheduler, closes the HTTP server, then closes the selected repository. JSON close is a no-op; PostgreSQL closes its owned pool.
 
-## 19. Change the port
+## 21. Common problems
 
-### Command Prompt
+### `Cannot find package 'pg'`
 
-```bat
-set PORT=3001
-npm start
-```
-
-### PowerShell
-
-```powershell
-$env:PORT="3001"
-npm start
-```
-
-### macOS/Linux
+Run:
 
 ```bash
-PORT=3001 npm start
+npm install
 ```
 
-Then open `http://127.0.0.1:3001` and update `PUBLIC_BASE_URL`/provider callback configuration to match if you are using OAuth.
+### `DATABASE_URL_REQUIRED`
 
-## 20. Common problems
+You selected `DATABASE_DRIVER=postgres` without a nonempty `DATABASE_URL`.
+
+### `DATABASE_DRIVER_UNSUPPORTED`
+
+Use only:
+
+```text
+DATABASE_DRIVER=json
+```
+
+or:
+
+```text
+DATABASE_DRIVER=postgres
+```
+
+### `DATABASE_MIGRATIONS_REQUIRED`
+
+The PostgreSQL database is reachable but required Srocial tables are missing. Run:
+
+```bash
+npm run db:migrate
+```
+
+then start again.
+
+### `MIGRATION_CHECKSUM_MISMATCH:<file>`
+
+An already-applied historical migration file changed. Restore the original migration and put the new schema change in a new migration file.
+
+### `/api/health` returns 503
+
+The repository health check failed. For PostgreSQL, verify database availability and credentials. The API deliberately does not reveal the raw connection error.
 
 ### All composer platforms are disabled
 
-No connected account exists for those providers. Use **Accounts > Connect Instagram** for Instagram.
-
-### Connect Instagram fails immediately
-
-Confirm `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` exist in the running process.
-
-### The page reports OAuth is not configured
-
-Set `TOKEN_ENCRYPTION_KEY` in the running server process.
-
-### OAuth returns an invalid/expired request message
-
-Start a fresh connection from **Accounts > Connect Instagram**. OAuth state is intentionally single-use and expires.
-
-### Instagram returns to the wrong URL
-
-Check that `PUBLIC_BASE_URL` and the callback URI configured in the provider application match exactly.
-
-### Schedule returns an account error
-
-Confirm the account is still `CONNECTED` and belongs to the selected platform.
-
-### Schedule returns a media error
-
-Confirm the URL starts with `https://` and is reachable by the provider.
+No connected account exists. Use **Accounts > Connect Instagram**.
 
 ### Upload fails
 
-Select a nonempty JPEG, PNG, WebP, or MP4 file. If it is too large, choose a smaller file or change `MEDIA_UPLOAD_MAX_BYTES` and restart. If storage is full, delete unused assets from **Media** or increase `MEDIA_UPLOAD_TOTAL_MAX_BYTES`. For other storage failures, ensure `MEDIA_UPLOAD_DIR` is writable and the disk has space. Your previous media URL stays in the form after an upload failure.
+Use a nonempty JPEG, PNG, WebP, or MP4. Check per-file quota, total quota, upload-directory write permissions, and available disk space.
 
 ### Media cannot be deleted
 
-If the asset is marked **In use**, at least one persisted post references it. Srocial intentionally refuses the deletion to avoid breaking scheduled or historical post media.
+The asset is referenced by a persisted post. This protection is intentional.
 
 ### Real posting does not start
 
-Confirm both values are true:
-
-```text
-ALLOW_REAL_PUBLISH=true
-SCHEDULER_ENABLED=true
-```
-
-and that provider credentials are configured.
+Confirm both `ALLOW_REAL_PUBLISH=true` and `SCHEDULER_ENABLED=true`, plus valid provider credentials.
 
 ### `EADDRINUSE`
 
-Another process is already using the selected port. Start Srocial on another port.
+Another process is using the configured port. Change `PORT` or stop the conflicting process.
 
-## 21. Reset local development data
+## 22. Reset JSON development data
+
+For JSON mode only:
 
 1. Stop Srocial.
-2. Delete `data/srocial.json` if you want to reset post/account development records.
-3. Delete `data/uploads/` only if you also want to erase all uploaded media.
+2. Delete `data/srocial.json` to reset records.
+3. Delete `data/uploads/` only if you also want to erase uploaded media.
 4. Start Srocial again.
 
-A new empty development data file and upload directory are created as needed.
+Do not use this procedure for PostgreSQL. Use database-specific administrative tools and backups instead.
 
-## Quick Start — Safe Mode
+## Quick Start — Safe JSON Mode
 
 ```text
 1. Install Node.js 20+.
 2. Download or clone Srocial.
-3. Open a terminal in the project folder.
-4. Run: npm start
-5. Open: http://127.0.0.1:3000
-6. Keep ALLOW_REAL_PUBLISH=false.
-7. Keep SCHEDULER_ENABLED=false.
-8. Configure Instagram credentials only when you want to test account connection.
-9. Use Accounts > Connect Instagram.
+3. Run: npm install
+4. Keep DATABASE_DRIVER=json.
+5. Run: npm start
+6. Open: http://127.0.0.1:3000
+7. Keep ALLOW_REAL_PUBLISH=false.
+8. Keep SCHEDULER_ENABLED=false.
+9. Configure Instagram only when needed.
 10. Use Media to reuse or safely delete uploaded assets.
-11. Run npm test whenever you want to verify the project.
+11. Run npm test to verify the project.
 12. Press Ctrl + C to stop.
+```
+
+## Quick Start — PostgreSQL Mode
+
+```text
+1. Install Node.js 20+ and PostgreSQL.
+2. Download or clone Srocial.
+3. Run: npm install
+4. Set DATABASE_DRIVER=postgres.
+5. Set DATABASE_URL to your database connection string.
+6. Run: npm run db:migrate
+7. Run: npm start
+8. Check: GET /api/health
+9. Keep real publishing flags false until intentionally enabled.
+10. Press Ctrl + C to stop.
 ```
