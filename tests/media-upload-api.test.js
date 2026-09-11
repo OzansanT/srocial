@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, get } from 'node:http';
 import { once } from 'node:events';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
 import { createRequestHandler } from '../server/app.js';
 import { createLocalMediaStore } from '../server/media/local-media-store.js';
 
@@ -130,4 +131,45 @@ test('missing and traversal-like media paths return 404', async () => {
     assert.equal(traversal.status, 404);
     assert.deepEqual(await traversal.json(), { error: 'not_found' });
   });
+});
+
+test('closes the stored file stream when a media download is aborted', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'srocial-media-abort-'));
+  const store = createLocalMediaStore({ rootDirectory: directory, publicBaseUrl: 'https://media.srocial.test' });
+  await store.initialize();
+  const upload = await store.save(Readable.from([Buffer.alloc(10 * 1024 * 1024)]), { contentType: 'video/mp4' });
+  let source;
+  const mediaStore = {
+    async open(key) {
+      const asset = await store.open(key);
+      source = asset.stream;
+      return asset;
+    }
+  };
+  const handler = createRequestHandler({ mediaStore });
+  let responseClosed;
+  const closed = new Promise((resolve) => { responseClosed = resolve; });
+  const server = createServer((request, response) => {
+    response.on('close', responseClosed);
+    return handler(request, response);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await new Promise((resolve, reject) => {
+      get(`http://127.0.0.1:${server.address().port}/media/${upload.key}`, (response) => {
+        response.once('data', () => { response.destroy(); resolve(); });
+        response.on('error', reject);
+      }).on('error', reject);
+    });
+    await closed;
+    assert.equal(source.destroyed, true, 'aborted downloads must release their source stream');
+    if (!source.closed) await once(source, 'close');
+    assert.equal(source.fd, null);
+  } finally {
+    source?.destroy();
+    server.close();
+    await once(server, 'close');
+    await rm(directory, { recursive: true, force: true });
+  }
 });

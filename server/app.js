@@ -134,6 +134,7 @@ export function createRequestHandler({ repository = null, now = () => new Date()
           return;
         }
         asset.stream.on('error', () => response.destroy());
+        response.once('close', () => asset.stream.destroy());
         asset.stream.pipe(response);
         return;
       }

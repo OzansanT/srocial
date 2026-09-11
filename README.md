@@ -4,7 +4,7 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, and bu
 
 The project uses one scheduling engine with isolated provider adapters. Instagram, Facebook, Threads, TikTok, and WhatsApp Business therefore do not become five unrelated applications. WhatsApp remains a separate messaging/campaign subsystem rather than a public-post adapter.
 
-## Current Status — V7
+## Current Status — V8
 
 The runnable foundation now includes:
 
@@ -19,6 +19,7 @@ The runnable foundation now includes:
 - Instagram single-image and Reel publishing/status flows;
 - explicit account-bound social destinations;
 - post media persistence using externally reachable HTTPS URLs;
+- direct JPEG/PNG/WebP/MP4 uploads with streamed local storage and composer controls;
 - account/platform compatibility validation before scheduling;
 - one publication and scheduler job per selected destination;
 - atomic job claiming, worker locks, stale-lock recovery, retries, status checks, and idempotency guards;
@@ -141,6 +142,8 @@ HOST=127.0.0.1
 PORT=3000
 PUBLIC_BASE_URL=http://127.0.0.1:3000
 DATA_FILE=./data/srocial.json
+MEDIA_UPLOAD_DIR=./data/uploads
+MEDIA_UPLOAD_MAX_BYTES=52428800
 DATABASE_URL=postgres://...
 TOKEN_ENCRYPTION_KEY=<long-random-secret>
 INSTAGRAM_APP_ID=
@@ -262,7 +265,7 @@ Generic media rules:
 - at most 10 media records per post at the generic layer;
 - provider adapters may impose stricter rules.
 
-The current Instagram adapter accepts one externally reachable HTTPS image or one Reel video. Direct object/file upload is not implemented yet.
+The current Instagram adapter accepts one externally reachable HTTPS image or one Reel video. V8 can upload files to Srocial and reuse the generated URL in this same contract. Provider-specific format requirements still apply.
 
 ### Legacy compatibility
 
@@ -288,6 +291,9 @@ GET  /api/accounts
 POST /api/accounts/:id/disconnect
 POST /api/oauth/:provider/start
 GET  /api/oauth/:provider/callback
+POST /api/media/uploads
+GET  /media/:key
+HEAD /media/:key
 ```
 
 Account responses contain safe metadata only; access/refresh token fields are not returned.
@@ -304,7 +310,19 @@ For each platform it presents:
 
 A destination is enabled only when a connected account exists for that provider. The submitted payload contains the selected account ID rather than only a platform name.
 
-The composer currently accepts one image/video HTTPS URL. Multiple-media UI and direct file/object-storage upload are later stages.
+The composer accepts one image/video HTTPS URL or a directly uploaded file. Choose a file, then click **Upload file** to fill the URL and media type automatically. Uploading locks media controls and scheduling until it finishes; errors preserve the previous URL and allow retry. Manual URL entry remains supported.
+
+### Direct media uploads — V8
+
+`POST /api/media/uploads` accepts the raw file body with one of these declared MIME types: `image/jpeg`, `image/png`, `image/webp`, or `video/mp4`. It returns `{ upload: { key, type, contentType, size, url, isHttps } }`. SVG/HTML MIME types are rejected. This is a MIME allowlist, not content inspection or malware scanning.
+
+Files stream to `data/uploads/` by default, under generated UUID filenames. `MEDIA_UPLOAD_DIR` changes that directory; `MEDIA_UPLOAD_MAX_BYTES` changes the per-file limit (default `52428800`, 50 MiB). Empty, failed, and oversized uploads are removed. Back up this directory alongside the data file and retain it across deployments.
+
+Uploaded assets are **public to anyone with their URL**, served with trusted MIME headers and `nosniff`. There is no upload deletion UI or total-storage quota yet. This development server has no application login or upload authorization: protect the dashboard and `/api/` behind authenticated access and request limits before exposing it, while allowing provider retrieval of `/media/`.
+
+Local HTTP uploads work for storage testing, but the existing scheduling API still requires HTTPS. Set `PUBLIC_BASE_URL` to the actual externally reachable HTTPS origin serving Srocial before uploading media for provider publishing. Changing this setting does not rewrite old URLs; re-upload or enter the correct HTTPS URL. An HTTPS URL alone does not prove public reachability.
+
+The local media store remains behind a storage interface, allowing a future R2/S3 implementation without changing the composer/post contract. Multiple-media UI and object-storage adapters are future work.
 
 ## Instagram Provider
 
@@ -468,7 +486,7 @@ srocial/
 
 Next priorities:
 
-1. add direct media upload/object storage so users do not need public URLs;
+1. add object storage, upload authorization, quotas, and media lifecycle management;
 2. add long-lived Instagram token refresh jobs;
 3. implement Threads and Facebook provider adapters;
 4. implement TikTok OAuth and Content Posting;

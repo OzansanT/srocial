@@ -68,6 +68,15 @@
               <small class="platform-picker__help">Only connected accounts can be scheduled. Provider integrations are enabled independently.</small>
             </fieldset>
 
+            <div class="media-upload">
+              <div class="media-upload__controls">
+                <label class="field" for="media-file"><span>Upload media</span><input id="media-file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" aria-describedby="media-upload-help"></label>
+                <button id="upload-media" type="button" class="button button--secondary">Upload file</button>
+              </div>
+              <small id="media-upload-help">JPEG, PNG, WebP, or MP4. Default limit: 50 MiB. Uploaded files are accessible to anyone with their link. Upload to fill the URL below, or enter your own URL.</small>
+              <p id="media-upload-feedback" class="form-feedback" aria-live="polite"></p>
+            </div>
+
             <div class="media-grid">
               <label class="field" for="media-type"><span>Media type</span><select id="media-type" name="mediaType"><option value="image">Image</option><option value="video">Video / Reel</option></select></label>
               <label class="field" for="media-url"><span>Media URL</span><input id="media-url" name="mediaUrl" type="url" inputmode="url" placeholder="https://cdn.example.com/post.jpg"><small>Optional globally; Instagram publishing requires provider-supported HTTPS media.</small></label>

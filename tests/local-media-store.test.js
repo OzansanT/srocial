@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, open, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -84,6 +84,18 @@ test('rejects empty media and removes the generated partial file', async () => {
   });
 });
 
+test('rejects inherited object keys as MIME types without writing files', async () => {
+  await withStore(async (store, directory) => {
+    for (const contentType of ['__proto__', 'constructor', 'text/html']) {
+      await assert.rejects(
+        () => store.save(Readable.from(['data']), { contentType }),
+        (error) => error?.code === 'UNSUPPORTED_MEDIA_TYPE'
+      );
+    }
+    assert.deepEqual(await readdir(directory), []);
+  });
+});
+
 test('rejects oversized media while streaming and removes partial file', async () => {
   await withStore(async (store, directory) => {
     await assert.rejects(
@@ -102,6 +114,22 @@ test('opens a stored asset using trusted content metadata', async () => {
     assert.equal(opened.contentType, 'image/webp');
     assert.equal(opened.size, 11);
     assert.deepEqual(await collect(opened.stream), Buffer.from('asset-bytes'));
+  });
+});
+
+test('persists all bytes even when the filesystem returns short writes', async (t) => {
+  await withStore(async (store, directory) => {
+    const probe = await open(join(directory, 'probe'), 'w');
+    const prototype = Object.getPrototypeOf(probe);
+    const write = prototype.write;
+    await probe.close();
+    t.mock.method(prototype, 'write', function (buffer, offset = 0, length = buffer.length - offset) {
+      return write.call(this, buffer, offset, Math.min(length, 2));
+    });
+    const upload = await store.save(Readable.from([Buffer.from('12345'), Buffer.from('6789')]), { contentType: 'video/mp4' });
+    const asset = await store.open(upload.key);
+    assert.equal(asset.size, 9);
+    assert.equal((await collect(asset.stream)).toString(), '123456789');
   });
 });
 

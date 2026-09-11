@@ -56,7 +56,7 @@ SCHEDULER_ENABLED=false
 
 Keep both values false while learning or testing. With these defaults, the recurring real-publish scheduler does not start.
 
-## 4. What V7 adds
+## 4. What V8 includes
 
 The dashboard now contains an **Accounts** section. Instagram can be managed from the browser with:
 
@@ -69,6 +69,8 @@ Disconnect
 You no longer need to manually call the OAuth start API for normal browser use.
 
 The composer still schedules a specific connected account rather than guessing an account from a platform name.
+
+V8 also adds **Upload media** in the composer. Select a JPEG, PNG, WebP, or MP4 file and click **Upload file**. The default limit is 50 MiB. A successful upload fills the media URL and type for you; you can still paste an existing HTTPS media URL instead.
 
 ## 5. Configure Instagram
 
@@ -175,8 +177,8 @@ Once Instagram is connected:
 2. Enter a caption.
 3. Check **Instagram**.
 4. Choose the connected Instagram account.
-5. Choose **Image** or **Video / Reel**.
-6. Enter an externally reachable HTTPS media URL.
+5. Under **Upload media**, select a file and click **Upload file**. Wait for the result. The media URL and type are filled automatically.
+6. Alternatively, choose **Image** or **Video / Reel** and paste an externally reachable HTTPS media URL.
 7. Choose a future publish time.
 8. Click **Schedule**.
 
@@ -189,7 +191,9 @@ Post
   -> SOCIAL_PUBLICATION scheduler job
 ```
 
-The media URL must be HTTPS and reachable by Instagram. Direct file/object-storage upload is not implemented yet.
+The media URL must be HTTPS and reachable by Instagram. A local HTTP upload shows a warning and cannot be scheduled for provider publishing. Set `PUBLIC_BASE_URL` to the actual public HTTPS Srocial address, restart, and upload again (or enter the correct HTTPS URL). Changing the setting does not update previously generated links.
+
+Uploads are accessible to anyone with their link. Upload only media you intend to make public. The development app has no login or upload authorization: before public deployment, protect the dashboard and `/api/` with authenticated access and request limits; keep `/media/` retrievable by the provider.
 
 ## 10. Safe local scheduling without a real account
 
@@ -279,6 +283,18 @@ data/srocial.json
 
 It can contain posts, media, publications, scheduler jobs, accounts, and OAuth-state records.
 
+Uploaded files are stored separately in `data/uploads/`. Keep and back up both locations. Uploads remain even if you do not schedule a post; V8 has no deletion UI or total disk quota. Deleting a file breaks its published URL.
+
+To change upload storage or the per-file limit, stop the server and set these variables before restarting. Example in PowerShell:
+
+```powershell
+$env:MEDIA_UPLOAD_DIR="./data/uploads"
+$env:MEDIA_UPLOAD_MAX_BYTES="52428800"
+npm start
+```
+
+The limit is in bytes (`52428800` = 50 MiB). Use the environment-variable syntax in section 5 for other shells. Editing `.env.example` alone does not configure the running server.
+
 Do not manually insert raw provider credentials. Srocial stores connected-account token material encrypted.
 
 ## 15. Run tests
@@ -354,6 +370,10 @@ Confirm the account is still `CONNECTED` and belongs to the selected platform.
 ### Schedule returns a media error
 
 Confirm the URL starts with `https://` and is reachable by the provider.
+
+### Upload fails
+
+Select a nonempty JPEG, PNG, WebP, or MP4 file. If it is too large, choose a smaller file or change `MEDIA_UPLOAD_MAX_BYTES` and restart. For storage failures, ensure `MEDIA_UPLOAD_DIR` is writable and the disk has space. Your previous media URL stays in the form after an upload failure.
 
 ### Real posting does not start
 

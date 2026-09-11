@@ -67,7 +67,7 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
 
     async save(readable, { contentType } = {}) {
       const normalizedType = normalizeContentType(contentType);
-      const media = MEDIA_TYPES[normalizedType];
+      const media = Object.hasOwn(MEDIA_TYPES, normalizedType) ? MEDIA_TYPES[normalizedType] : null;
       if (!media) throw new MediaStoreError('UNSUPPORTED_MEDIA_TYPE');
       if (!readable || typeof readable[Symbol.asyncIterator] !== 'function') {
         throw new MediaStoreError('EMPTY_MEDIA');
@@ -86,7 +86,12 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
           if (bytes.length === 0) continue;
           size += bytes.length;
           if (size > byteLimit) throw new MediaStoreError('MEDIA_TOO_LARGE');
-          await fileHandle.write(bytes);
+          let offset = 0;
+          while (offset < bytes.length) {
+            const { bytesWritten } = await fileHandle.write(bytes, offset, bytes.length - offset);
+            if (bytesWritten === 0) throw new MediaStoreError('MEDIA_STORAGE_ERROR');
+            offset += bytesWritten;
+          }
         }
         if (size === 0) throw new MediaStoreError('EMPTY_MEDIA');
         completed = true;
