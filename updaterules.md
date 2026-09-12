@@ -1143,3 +1143,39 @@ SMALL, RESPONSIBILITY-FOCUSED FILES
 ```
 
 If a proposed change violates one of these invariants, stop and redesign the change before implementation.
+
+---
+
+## 41. Persistent Problem Tracking Rule
+
+`PROBLEMS.md` is the canonical persistent tracker for unresolved problems discovered during development.
+
+Every contributor and AI coding agent must read `PROBLEMS.md` before starting a development task and review it again before declaring the task complete.
+
+A problem must be added to `PROBLEMS.md` when any of the following is true:
+
+- development exposed a defect that is not fixed in the same verified change;
+- work is only partially implemented;
+- a required path, platform, migration, UI interaction, recovery case, or integration remains incomplete;
+- verification could not be performed because credentials, browser/runtime access, provider access, infrastructure, or another dependency was unavailable;
+- a workaround or compatibility path leaves known technical debt that could be forgotten;
+- a task was described as complete but a meaningful condition remains unverified;
+- a failed or interrupted development attempt leaves follow-up work.
+
+Do not hide an unresolved problem only in a chat response, pull-request description, temporary note, or commit message. If it still exists after the development task, it must also exist in `PROBLEMS.md`.
+
+Do not remove a problem merely because code intended to fix it was written. Mark it `RESOLVED` only after appropriate verification evidence exists. Record that evidence in the tracker.
+
+If a problem is urgent (`P0` or `P1`) and the next requested feature depends on the affected area, address the problem first unless there is a deliberate documented reason to defer it.
+
+At the end of each development task:
+
+1. review all active problems affected by the change;
+2. add newly discovered problems;
+3. update statuses for problems touched by the work;
+4. record verification evidence for resolved problems;
+5. keep partially solved items as `PARTIAL`;
+6. keep unavailable verification as `VERIFY` or `BLOCKED`;
+7. report any remaining relevant active problems with the development result.
+
+Future planned features that have never been started belong in the roadmap/README rather than `PROBLEMS.md`. Once implementation starts and leaves an incomplete or problematic state, the unfinished portion belongs in `PROBLEMS.md` until resolved and verified.
