@@ -1,13 +1,15 @@
+import { registerAnalyticsProvider } from '../../analytics/registry.js';
 import { registerOAuthProvider } from '../../auth/oauth-provider-registry.js';
 import { registerPlatform } from '../registry.js';
 import { getInstagramConfig } from './config.js';
 import { createInstagramClient } from './client.js';
 import { createInstagramOAuthProvider } from './auth.js';
+import { createInstagramAnalyticsAdapter } from './analytics.js';
 import { createInstagramPublishingAdapter } from './publish.js';
 
 function authError() { const error = new Error('AUTH_ERROR'); error.code = 'AUTH_ERROR'; error.retryable = false; return error; }
 
-export function registerInstagramProvider({ env = process.env, oauthRegistry, platformRegistry, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
+export function registerInstagramProvider({ env = process.env, oauthRegistry, platformRegistry, analyticsRegistry = null, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
   const config = getInstagramConfig(env);
   if (!config) return { configured: false };
   if (!oauthRegistry || !platformRegistry || !repository) throw new Error('INSTAGRAM_RUNTIME_DEPENDENCIES_REQUIRED');
@@ -27,5 +29,6 @@ export function registerInstagramProvider({ env = process.env, oauthRegistry, pl
   const publishingAdapter = createInstagramPublishingAdapter({ client, resolveCredentials, getMedia: (postId) => repository.listMediaForPost(postId) });
   registerOAuthProvider(oauthRegistry, 'instagram', oauthProvider);
   registerPlatform(platformRegistry, 'instagram', publishingAdapter);
+  if (analyticsRegistry) registerAnalyticsProvider(analyticsRegistry, 'instagram', createInstagramAnalyticsAdapter({ client, resolveCredentials }));
   return { configured: true, apiVersion: config.apiVersion, scopes: [...config.scopes] };
 }
