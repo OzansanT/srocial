@@ -108,18 +108,21 @@ test('rejects missing, disconnected, and cross-platform accounts', async () => {
 
 test('rejects media counts that implemented provider adapters cannot publish before persistence', async () => {
   const image = (name) => ({ type: 'image', url: `https://cdn.example.com/${name}.jpg` });
+  const tiktokOptions = { privacyLevel: 'SELF_ONLY', consent: true };
   const cases = [
     { account: instagram, platform: 'instagram', media: [] },
     { account: instagram, platform: 'instagram', media: [image('one'), image('two')] },
     { account: facebook, platform: 'facebook', media: [image('one'), image('two')] },
-    { account: threads, platform: 'threads', media: [image('one'), image('two')] }
+    { account: threads, platform: 'threads', media: [image('one'), image('two')] },
+    { account: tiktok, platform: 'tiktok', media: [] },
+    { account: tiktok, platform: 'tiktok', media: [image('one'), image('two')] }
   ];
 
   for (const { account, platform, media } of cases) {
     const repository = createRepository({ accounts: [account] });
     await assert.rejects(() => createScheduledPost(repository, {
       caption: 'Provider contract',
-      destinations: [{ platform, accountId: account.id }],
+      destinations: [{ platform, accountId: account.id, ...(platform === 'tiktok' ? { options: tiktokOptions } : {}) }],
       media,
       scheduledAt: future
     }, { now }), (error) => {
@@ -145,15 +148,6 @@ test('allows text-only Facebook and Threads schedules', async () => {
     assert.equal(result.media.length, 0);
     assert.equal(result.publications.length, 1);
   }
-});
-
-test('persists media in input order when no implemented adapter narrows the generic media limit', async () => {
-  const repository = createRepository({ accounts: [tiktok] });
-  const result = await createScheduledPost(repository, {
-    caption: 'Media', destinations: [{ platform: 'tiktok', accountId: 'acc-tt' }],
-    media: [{ type: 'image', url: 'https://cdn.example.com/1.jpg' }, { type: 'video', url: 'https://cdn.example.com/2.mp4' }], scheduledAt: future
-  }, { now });
-  assert.deepEqual(result.media.map((item) => item.sortOrder), [0, 1]);
 });
 
 test('rejects invalid media type, non-https URL, and more than ten items', async () => {
