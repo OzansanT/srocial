@@ -8,6 +8,7 @@ import { createPostPayload, listPostsPayload } from './routes/posts.js';
 import { disconnectAccountPayload, listAccountsPayload } from './routes/accounts.js';
 import { completeOAuthPayload, startOAuthPayload } from './routes/oauth.js';
 import { deleteMediaPayload, listMediaPayload } from './routes/media.js';
+import { getTikTokCreatorInfoPayload } from './routes/tiktok.js';
 
 const CLIENT_ROOT = fileURLToPath(new URL('../client/', import.meta.url));
 const CONTENT_TYPES = Object.freeze({
@@ -128,7 +129,7 @@ async function serveStatic(pathname, response) {
   }
 }
 
-export function createRequestHandler({ repository = null, now = () => new Date(), oauthProviderRegistry = new Map(), tokenCipher = null, publicBaseUrl = 'http://127.0.0.1:3000', mediaStore = null, appAuth = null } = {}) {
+export function createRequestHandler({ repository = null, now = () => new Date(), oauthProviderRegistry = new Map(), platformRegistry = new Map(), tokenCipher = null, publicBaseUrl = 'http://127.0.0.1:3000', mediaStore = null, appAuth = null } = {}) {
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -263,6 +264,13 @@ export function createRequestHandler({ repository = null, now = () => new Date()
       if (request.method === 'GET' && url.pathname === '/api/accounts') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
         const result = await listAccountsPayload(repository);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      const creatorInfo = url.pathname.match(/^\/api\/accounts\/([^/]+)\/tiktok\/creator-info$/);
+      if (request.method === 'GET' && creatorInfo) {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await getTikTokCreatorInfoPayload(repository, platformRegistry, decodeURIComponent(creatorInfo[1]));
         return sendJson(response, result.statusCode, result.payload);
       }
 
