@@ -1,4 +1,5 @@
 import { getOAuthProvider } from '../../auth/oauth-provider-registry.js';
+import { recordProviderFailure, recordProviderSuccess } from '../../operations/provider-telemetry.js';
 import { ACCOUNT_STATES } from '../../services/account-service.js';
 import { JOB_STATES } from '../job-states.js';
 import { JOB_TYPES } from '../job-types.js';
@@ -47,16 +48,26 @@ async function handleFailure({ error, job, account, repository, now, retryPolicy
   const classification = retryPolicy.classifyExecutionError(error);
   if (classification.retryable) {
     const delayMs = retryPolicy.getRetryDelayMs(job.attempts);
+    const retryAt = new Date(now.getTime() + delayMs);
     await repository.updateJob(job.id, {
       state: JOB_STATES.RETRYING,
-      scheduledAt: new Date(now.getTime() + delayMs).toISOString(),
+      scheduledAt: retryAt.toISOString(),
       errorCode: classification.code,
       ...unlockedPatch(now)
     });
+    if (account) {
+      await recordProviderFailure(repository, account.provider, classification.code, {
+        now,
+        limitedUntil: classification.code === 'RATE_LIMIT' ? retryAt : null
+      });
+    }
     return { status: JOB_STATES.RETRYING, errorCode: classification.code };
   }
 
-  if (account) await markAccountFailure(repository, account, now, classification.code);
+  if (account) {
+    await markAccountFailure(repository, account, now, classification.code);
+    await recordProviderFailure(repository, account.provider, classification.code, { now });
+  }
   return failJob(repository, job, now, classification.code);
 }
 
@@ -107,6 +118,7 @@ export async function executeTokenRefreshJob({
     const expiresMs = Date.parse(account.tokenExpiresAt ?? '');
     if (!Number.isFinite(expiresMs) || expiresMs <= now.getTime()) {
       await markAccountFailure(repository, account, now, 'AUTH_ERROR');
+      await recordProviderFailure(repository, account.provider, 'AUTH_ERROR', { now });
       return failJob(repository, job, now, 'AUTH_ERROR');
     }
 
@@ -153,6 +165,7 @@ export async function executeTokenRefreshJob({
     if (replacementRefreshToken) accountPatch.refreshTokenEncrypted = cipher.encrypt(replacementRefreshToken);
 
     const updatedAccount = await repository.updateAccount(account.id, accountPatch);
+    await recordProviderSuccess(repository, account.provider, { now });
 
     const nextRefreshAt = getNextTokenRefreshAt(updatedAccount, { now });
     if (!nextRefreshAt) {
