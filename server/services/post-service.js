@@ -53,6 +53,14 @@ function normalizeProviderOptions(platform, value) {
   };
 }
 
+function normalizeMedia(media) {
+  if (!Array.isArray(media)) return [];
+  return media.map((item) => ({
+    type: String(item?.type ?? '').trim().toLowerCase(),
+    url: String(item?.url ?? '').trim()
+  }));
+}
+
 function normalizeDestinations(destinations) {
   if (!Array.isArray(destinations)) return [];
   const seen = new Set();
@@ -67,28 +75,26 @@ function normalizeDestinations(destinations) {
     normalized.push({
       platform,
       accountId,
-      options: normalizeProviderOptions(platform, destination?.options)
+      options: normalizeProviderOptions(platform, destination?.options),
+      captionOverride: destination?.captionOverride === undefined || destination?.captionOverride === null
+        ? null
+        : String(destination.captionOverride).trim(),
+      mediaOverride: destination?.mediaOverride === undefined || destination?.mediaOverride === null
+        ? null
+        : normalizeMedia(destination.mediaOverride)
     });
   }
   return normalized;
 }
 
-function normalizeMedia(media) {
-  if (!Array.isArray(media)) return [];
-  return media.map((item) => ({
-    type: String(item?.type ?? '').trim().toLowerCase(),
-    url: String(item?.url ?? '').trim()
-  }));
-}
-
-function validateProviderMediaCounts(requestedPlatforms, mediaCount, details) {
+function validateProviderMediaCounts(requestedPlatforms, mediaCount, details, field = 'media') {
   for (const platform of new Set(requestedPlatforms)) {
     const contract = PROVIDER_MEDIA_CONTRACTS[platform];
     if (!contract || (mediaCount >= contract.min && mediaCount <= contract.max)) continue;
     const message = contract.min === 1 && contract.max === 1
       ? `${contract.label} currently requires exactly one media item.`
       : `${contract.label} currently supports at most one media item.`;
-    details.push({ field: 'media', message });
+    details.push({ field, message });
   }
 }
 
@@ -108,6 +114,37 @@ function validateDestinationOptions(destinations, details) {
   }
 }
 
+function validateMediaItems(media, details, field = 'media') {
+  if (media.length > MAX_MEDIA) {
+    details.push({ field, message: `A post can contain at most ${MAX_MEDIA} media items.` });
+  }
+  for (const item of media) {
+    if (!MEDIA_TYPES.has(item.type)) {
+      details.push({ field, message: `Unsupported media type: ${item.type || 'empty'}.` });
+      break;
+    }
+    try {
+      const url = new URL(item.url);
+      if (url.protocol !== 'https:') throw new Error('not https');
+    } catch {
+      details.push({ field, message: 'Media URLs must be valid HTTPS URLs.' });
+      break;
+    }
+  }
+}
+
+function effectiveCaption(baseCaption, destination) {
+  return destination.captionOverride !== null && destination.captionOverride !== undefined
+    ? destination.captionOverride
+    : baseCaption;
+}
+
+function effectiveMedia(baseMedia, destination) {
+  return destination.mediaOverride !== null && destination.mediaOverride !== undefined
+    ? destination.mediaOverride
+    : baseMedia;
+}
+
 function validateBaseInput(input, now, destinations, platforms, media) {
   const details = [];
   const caption = typeof input?.caption === 'string' ? input.caption.trim() : '';
@@ -115,7 +152,6 @@ function validateBaseInput(input, now, destinations, platforms, media) {
   const usesDestinations = Array.isArray(input?.destinations);
   const requestedPlatforms = usesDestinations ? destinations.map((item) => item.platform) : platforms;
 
-  if (!caption) details.push({ field: 'caption', message: 'Caption is required.' });
   if (requestedPlatforms.length === 0) {
     details.push({ field: usesDestinations ? 'destinations' : 'platforms', message: 'Select at least one social destination.' });
   }
@@ -131,23 +167,22 @@ function validateBaseInput(input, now, destinations, platforms, media) {
     details.push({ field: 'scheduledAt', message: 'Schedule time must be in the future.' });
   }
 
-  if (media.length > MAX_MEDIA) {
-    details.push({ field: 'media', message: `A post can contain at most ${MAX_MEDIA} media items.` });
-  }
-  validateProviderMediaCounts(requestedPlatforms, media.length, details);
-  if (usesDestinations) validateDestinationOptions(destinations, details);
-  for (const item of media) {
-    if (!MEDIA_TYPES.has(item.type)) {
-      details.push({ field: 'media', message: `Unsupported media type: ${item.type || 'empty'}.` });
-      break;
+  validateMediaItems(media, details);
+
+  if (usesDestinations) {
+    for (const destination of destinations) {
+      const destinationCaption = effectiveCaption(caption, destination);
+      const destinationMedia = effectiveMedia(media, destination);
+      if (!destinationCaption) {
+        details.push({ field: 'destinations', message: `${destination.platform || 'Destination'} requires a caption.` });
+      }
+      validateMediaItems(destinationMedia, details, 'destinations');
+      validateProviderMediaCounts([destination.platform], destinationMedia.length, details, 'destinations');
     }
-    try {
-      const url = new URL(item.url);
-      if (url.protocol !== 'https:') throw new Error('not https');
-    } catch {
-      details.push({ field: 'media', message: 'Media URLs must be valid HTTPS URLs.' });
-      break;
-    }
+    validateDestinationOptions(destinations, details);
+  } else {
+    if (!caption) details.push({ field: 'caption', message: 'Caption is required.' });
+    validateProviderMediaCounts(requestedPlatforms, media.length, details);
   }
 
   if (details.length > 0) throw new ValidationError(details);
@@ -192,7 +227,7 @@ export async function createScheduledPost(repository, input, { now = new Date() 
   const validated = validateBaseInput(input, now, destinations, platforms, mediaInput);
   const resolvedDestinations = validated.usesDestinations
     ? await validateDestinationAccounts(repository, destinations)
-    : platforms.map((platform) => ({ platform, accountId: null, options: {} }));
+    : platforms.map((platform) => ({ platform, accountId: null, options: {}, captionOverride: null, mediaOverride: null }));
   const timestamp = now.toISOString();
 
   if (typeof repository?.createSocialScheduleGraph !== 'function') {
@@ -220,6 +255,8 @@ export async function createScheduledPost(repository, input, { now = new Date() 
         state: PUBLICATION_STATES.SCHEDULED,
         scheduledAt: validated.scheduledAt,
         providerOptions: destination.options ?? {},
+        captionOverride: destination.captionOverride ?? null,
+        mediaOverride: destination.mediaOverride ?? null,
         externalId: null,
         externalUrl: null,
         errorCode: null,
