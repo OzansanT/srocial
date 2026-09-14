@@ -7,10 +7,31 @@ function createRepository({ accounts = [] } = {}) {
   const records = { posts: [], publications: [], jobs: [], media: [], accounts: structuredClone(accounts) };
   return {
     records,
-    async createPost(record) { const item = { id: `post-${records.posts.length + 1}`, ...record }; records.posts.push(item); return structuredClone(item); },
-    async createPublication(record) { const item = { id: `pub-${records.publications.length + 1}`, ...record }; records.publications.push(item); return structuredClone(item); },
-    async createJob(record) { const item = { id: `job-${records.jobs.length + 1}`, ...record }; records.jobs.push(item); return structuredClone(item); },
-    async createMedia(record) { const item = { id: `media-${records.media.length + 1}`, ...record }; records.media.push(item); return structuredClone(item); },
+    async createSocialScheduleGraph({ post, media = [], publicationPlans = [] }) {
+      const createdPost = { id: `post-${records.posts.length + 1}`, ...structuredClone(post) };
+      records.posts.push(createdPost);
+      const createdMedia = media.map((record) => {
+        const item = { id: `media-${records.media.length + 1}`, ...structuredClone(record), postId: createdPost.id };
+        records.media.push(item);
+        return structuredClone(item);
+      });
+      const publications = [];
+      const jobs = [];
+      for (const plan of publicationPlans) {
+        const publication = { id: `pub-${records.publications.length + 1}`, ...structuredClone(plan.publication), postId: createdPost.id };
+        records.publications.push(publication);
+        publications.push(structuredClone(publication));
+        const job = {
+          id: `job-${records.jobs.length + 1}`,
+          ...structuredClone(plan.job),
+          publicationId: publication.id,
+          campaignId: null
+        };
+        records.jobs.push(job);
+        jobs.push(structuredClone(job));
+      }
+      return { post: structuredClone(createdPost), media: createdMedia, publications, jobs };
+    },
     async getAccount(id) { const item = records.accounts.find((account) => account.id === id); return item ? structuredClone(item) : null; }
   };
 }
