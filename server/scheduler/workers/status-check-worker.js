@@ -1,3 +1,4 @@
+import { recordProviderFailure, recordProviderSuccess } from '../../operations/provider-telemetry.js';
 import { JOB_TYPES } from '../job-types.js';
 import { JOB_STATES } from '../job-states.js';
 import { PUBLICATION_STATES, TERMINAL_PUBLICATION_STATES } from '../states.js';
@@ -73,6 +74,7 @@ export async function executeStatusCheckJob({
         errorCode: null,
         updatedAt: now.toISOString()
       });
+      await recordProviderSuccess(repository, publication.platform, { now });
       return { status: JOB_STATES.SCHEDULED, publicationState: PUBLICATION_STATES.PROCESSING };
     }
 
@@ -85,16 +87,19 @@ export async function executeStatusCheckJob({
         updatedAt: now.toISOString()
       });
       await repository.updateJob(job.id, completedJobPatch(now));
+      await recordProviderSuccess(repository, publication.platform, { now });
       return { status: JOB_STATES.COMPLETED, publicationState: PUBLICATION_STATES.PUBLISHED };
     }
 
     if (status === PUBLICATION_STATES.FAILED) {
+      const errorCode = result?.errorCode ?? 'PROVIDER_REPORTED_FAILURE';
       await repository.updatePublication(publication.id, {
         state: PUBLICATION_STATES.FAILED,
-        errorCode: result?.errorCode ?? 'PROVIDER_REPORTED_FAILURE',
+        errorCode,
         updatedAt: now.toISOString()
       });
       await repository.updateJob(job.id, completedJobPatch(now));
+      await recordProviderFailure(repository, publication.platform, errorCode, { now });
       return { status: JOB_STATES.COMPLETED, publicationState: PUBLICATION_STATES.FAILED };
     }
 
@@ -103,9 +108,10 @@ export async function executeStatusCheckJob({
     const classification = retryPolicy.classifyExecutionError(error);
 
     if (classification.retryable) {
+      const retryAt = new Date(now.getTime() + retryPolicy.getRetryDelayMs(job.attempts));
       await repository.updateJob(job.id, {
         state: JOB_STATES.RETRYING,
-        scheduledAt: new Date(now.getTime() + retryPolicy.getRetryDelayMs(job.attempts)).toISOString(),
+        scheduledAt: retryAt.toISOString(),
         lockedAt: null,
         lockedBy: null,
         errorCode: classification.code,
@@ -115,6 +121,10 @@ export async function executeStatusCheckJob({
         await repository.updatePublication(publication.id, {
           errorCode: classification.code,
           updatedAt: now.toISOString()
+        });
+        await recordProviderFailure(repository, publication.platform, classification.code, {
+          now,
+          limitedUntil: classification.code === 'RATE_LIMIT' ? retryAt : null
         });
       }
       return { status: JOB_STATES.RETRYING, errorCode: classification.code };
@@ -126,6 +136,7 @@ export async function executeStatusCheckJob({
         errorCode: classification.code,
         updatedAt: now.toISOString()
       });
+      await recordProviderFailure(repository, publication.platform, classification.code, { now });
     }
     await repository.updateJob(job.id, {
       state: JOB_STATES.FAILED,
