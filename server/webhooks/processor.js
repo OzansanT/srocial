@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { recordProviderFailure, recordProviderSuccess } from '../operations/provider-telemetry.js';
+import { extractWhatsAppStatuses } from '../messaging/whatsapp/webhook.js';
+
+const WHATSAPP_STATE_RANK = Object.freeze({ SENDING: 0, SENT: 1, DELIVERED: 2, READ: 3 });
 
 export function webhookFingerprint(rawBody) {
   return `sha256:${createHash('sha256').update(rawBody).digest('hex')}`;
@@ -131,4 +134,49 @@ export async function processTikTokWebhook({ repository, rawBody, payload, now =
 
   await finishEvent(repository, started.event, now);
   return { duplicate: false };
+}
+
+function shouldAdvanceWhatsApp(currentState, nextState) {
+  if (nextState === 'FAILED') return currentState !== 'READ';
+  if (currentState === 'FAILED') return false;
+  const currentRank = WHATSAPP_STATE_RANK[currentState] ?? -1;
+  const nextRank = WHATSAPP_STATE_RANK[nextState] ?? -1;
+  return nextRank >= currentRank;
+}
+
+export async function processWhatsAppWebhook({ repository, rawBody, payload, now = new Date() } = {}) {
+  const externalEventId = webhookFingerprint(rawBody);
+  const started = await beginEvent(repository, {
+    provider: 'whatsapp',
+    externalEventId,
+    eventType: 'whatsapp.status',
+    payload,
+    signatureValid: true,
+    processingState: 'RECEIVED',
+    errorCode: null,
+    receivedAt: now.toISOString(),
+    processedAt: null
+  });
+  if (started.duplicate) return { duplicate: true };
+
+  const statuses = extractWhatsAppStatuses(payload);
+  for (const status of statuses) {
+    const message = await repository.findWhatsAppMessageByProviderId(status.providerMessageId);
+    if (!message || !shouldAdvanceWhatsApp(message.state, status.state)) continue;
+    const at = status.occurredAt ?? now.toISOString();
+    const patch = { state: status.state, errorCode: status.errorCode, updatedAt: now.toISOString() };
+    if (status.state === 'SENT') patch.sentAt = at;
+    if (status.state === 'DELIVERED') patch.deliveredAt = at;
+    if (status.state === 'READ') patch.readAt = at;
+    if (status.state === 'FAILED') patch.failedAt = at;
+    await repository.updateWhatsAppMessage(message.id, patch);
+    if (message.campaignRecipientId) {
+      await repository.updateCampaignRecipient(message.campaignRecipientId, { state: status.state });
+    }
+    if (status.state === 'FAILED') await recordProviderFailure(repository, 'whatsapp', status.errorCode, { now });
+    else await recordProviderSuccess(repository, 'whatsapp', { now });
+  }
+
+  await finishEvent(repository, started.event, now);
+  return { duplicate: false, processed: statuses.length };
 }
