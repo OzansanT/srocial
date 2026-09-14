@@ -3,8 +3,18 @@ import { JOB_STATES } from './job-states.js';
 import { executeSocialPublicationJob } from './workers/social-publication-worker.js';
 import { executeStatusCheckJob } from './workers/status-check-worker.js';
 import { executeTokenRefreshJob } from './workers/token-refresh-worker.js';
+import { executeWhatsAppCampaignJob } from './workers/whatsapp-campaign-worker.js';
 
-export async function executeJob({ job, repository, registry, oauthRegistry, tokenCipher, now = new Date(), retryPolicy }) {
+export async function executeJob({
+  job,
+  repository,
+  registry,
+  messagingRegistry = new Map(),
+  oauthRegistry,
+  tokenCipher,
+  now = new Date(),
+  retryPolicy
+}) {
   if (job.type === JOB_TYPES.SOCIAL_PUBLICATION) {
     return executeSocialPublicationJob({ job, repository, registry, now, retryPolicy });
   }
@@ -15,6 +25,10 @@ export async function executeJob({ job, repository, registry, oauthRegistry, tok
 
   if (job.type === JOB_TYPES.TOKEN_REFRESH) {
     return executeTokenRefreshJob({ job, repository, oauthRegistry, tokenCipher, now, retryPolicy });
+  }
+
+  if (job.type === JOB_TYPES.WHATSAPP_CAMPAIGN) {
+    return executeWhatsAppCampaignJob({ job, repository, messagingRegistry, now, retryPolicy });
   }
 
   await repository.updateJob(job.id, {
