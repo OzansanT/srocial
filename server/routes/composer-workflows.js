@@ -1,3 +1,4 @@
+import { readJsonBody } from '../http/read-json-body.js';
 import { createComposerWorkflowService } from '../services/composer-workflow-service.js';
 
 function errorResponse(error) {
@@ -95,4 +96,68 @@ export function deleteDestinationGroupPayload(repository, id) {
 
 export function compatibilityPayload(repository, input, { now } = {}) {
   return safe(async () => ({ statusCode: 200, payload: await service(repository).compatibility(input, { now }) }));
+}
+
+export async function routeComposerWorkflowRequest({ request, pathname, repository, now = new Date() } = {}) {
+  if (!pathname.startsWith('/api/composer/')) return null;
+  if (!repository) return { statusCode: 503, payload: { error: 'repository_unavailable' } };
+
+  if (pathname === '/api/composer/drafts') {
+    if (request.method === 'GET') return listDraftsPayload(repository);
+    if (request.method === 'POST') return createDraftPayload(repository, await readJsonBody(request), { now });
+    return { statusCode: 405, payload: { error: 'method_not_allowed' } };
+  }
+
+  const draftMatch = pathname.match(/^\/api\/composer\/drafts\/([^/]+)$/);
+  if (draftMatch) {
+    const id = decodeURIComponent(draftMatch[1]);
+    if (request.method === 'GET') return getDraftPayload(repository, id);
+    if (request.method === 'PATCH') return updateDraftPayload(repository, id, await readJsonBody(request), { now });
+    if (request.method === 'DELETE') return deleteDraftPayload(repository, id);
+    return { statusCode: 405, payload: { error: 'method_not_allowed' } };
+  }
+
+  const resources = [
+    {
+      path: '/api/composer/caption-templates',
+      pattern: /^\/api\/composer\/caption-templates\/([^/]+)$/,
+      list: listCaptionTemplatesPayload,
+      create: createCaptionTemplatePayload,
+      remove: deleteCaptionTemplatePayload
+    },
+    {
+      path: '/api/composer/hashtag-collections',
+      pattern: /^\/api\/composer\/hashtag-collections\/([^/]+)$/,
+      list: listHashtagCollectionsPayload,
+      create: createHashtagCollectionPayload,
+      remove: deleteHashtagCollectionPayload
+    },
+    {
+      path: '/api/composer/destination-groups',
+      pattern: /^\/api\/composer\/destination-groups\/([^/]+)$/,
+      list: listDestinationGroupsPayload,
+      create: createDestinationGroupPayload,
+      remove: deleteDestinationGroupPayload
+    }
+  ];
+
+  for (const resource of resources) {
+    if (pathname === resource.path) {
+      if (request.method === 'GET') return resource.list(repository);
+      if (request.method === 'POST') return resource.create(repository, await readJsonBody(request), { now });
+      return { statusCode: 405, payload: { error: 'method_not_allowed' } };
+    }
+    const match = pathname.match(resource.pattern);
+    if (match) {
+      if (request.method === 'DELETE') return resource.remove(repository, decodeURIComponent(match[1]));
+      return { statusCode: 405, payload: { error: 'method_not_allowed' } };
+    }
+  }
+
+  if (pathname === '/api/composer/compatibility') {
+    if (request.method !== 'POST') return { statusCode: 405, payload: { error: 'method_not_allowed' } };
+    return compatibilityPayload(repository, await readJsonBody(request), { now });
+  }
+
+  return { statusCode: 404, payload: { error: 'not_found' } };
 }
