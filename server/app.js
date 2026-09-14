@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJsonBody, RequestBodyError } from './http/read-json-body.js';
+import { readRawBody } from './http/read-raw-body.js';
 import { getHealthPayload } from './routes/health.js';
 import { getDashboardPayload } from './routes/dashboard.js';
 import { createPostPayload, listPostsPayload } from './routes/posts.js';
@@ -9,6 +10,8 @@ import { disconnectAccountPayload, listAccountsPayload } from './routes/accounts
 import { completeOAuthPayload, startOAuthPayload } from './routes/oauth.js';
 import { deleteMediaPayload, listMediaPayload } from './routes/media.js';
 import { getTikTokCreatorInfoPayload } from './routes/tiktok.js';
+import { getOperationsPayload } from './routes/operations.js';
+import { handleMetaChallenge, handleMetaWebhook, handleTikTokWebhook } from './routes/webhooks.js';
 
 const CLIENT_ROOT = fileURLToPath(new URL('../client/', import.meta.url));
 const CONTENT_TYPES = Object.freeze({
@@ -50,6 +53,11 @@ function sendJson(response, statusCode, payload, headers = {}) {
     ...headers
   });
   response.end(JSON.stringify(payload));
+}
+
+function sendText(response, statusCode, payload) {
+  response.writeHead(statusCode, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+  response.end(String(payload ?? ''));
 }
 
 function sendNoContent(response) {
@@ -106,6 +114,8 @@ function isPublicRoute(method, pathname) {
   const normalizedMethod = String(method ?? 'GET').toUpperCase();
   if (normalizedMethod === 'GET' && pathname === '/api/health') return true;
   if (normalizedMethod === 'POST' && pathname === '/api/auth/login') return true;
+  if ((normalizedMethod === 'GET' || normalizedMethod === 'POST') && pathname === '/api/webhooks/meta') return true;
+  if (normalizedMethod === 'POST' && pathname === '/api/webhooks/tiktok') return true;
   if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && PUBLIC_AUTH_ASSETS.has(pathname)) return true;
   if (normalizedMethod === 'GET' && /^\/api\/oauth\/[^/]+\/callback$/.test(pathname)) return true;
   if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && /^\/media\/[^/]+$/.test(pathname)) return true;
@@ -129,7 +139,17 @@ async function serveStatic(pathname, response) {
   }
 }
 
-export function createRequestHandler({ repository = null, now = () => new Date(), oauthProviderRegistry = new Map(), platformRegistry = new Map(), tokenCipher = null, publicBaseUrl = 'http://127.0.0.1:3000', mediaStore = null, appAuth = null } = {}) {
+export function createRequestHandler({
+  repository = null,
+  now = () => new Date(),
+  oauthProviderRegistry = new Map(),
+  platformRegistry = new Map(),
+  tokenCipher = null,
+  publicBaseUrl = 'http://127.0.0.1:3000',
+  mediaStore = null,
+  appAuth = null,
+  webhookConfig = {}
+} = {}) {
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -166,6 +186,43 @@ export function createRequestHandler({ repository = null, now = () => new Date()
         }
       }
 
+      if (request.method === 'POST' && url.pathname === '/api/webhooks/meta') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const rawBody = await readRawBody(request);
+        const result = await handleMetaWebhook({
+          repository,
+          rawBody,
+          signature: request.headers['x-hub-signature-256'],
+          appSecret: webhookConfig.metaAppSecret,
+          now: now()
+        });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/webhooks/meta') {
+        const result = handleMetaChallenge({
+          mode: url.searchParams.get('hub.mode'),
+          verifyToken: url.searchParams.get('hub.verify_token'),
+          challenge: url.searchParams.get('hub.challenge'),
+          expectedToken: webhookConfig.metaVerifyToken
+        });
+        if (result.text != null) return sendText(response, result.statusCode, result.text);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/webhooks/tiktok') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const rawBody = await readRawBody(request);
+        const result = await handleTikTokWebhook({
+          repository,
+          rawBody,
+          signature: request.headers['tiktok-signature'],
+          clientSecret: webhookConfig.tiktokClientSecret,
+          now: now()
+        });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/auth/session' && appAuth) {
         if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
         return sendJson(response, 200, { authenticated: true, user: { username: applicationSession.username } });
@@ -181,6 +238,10 @@ export function createRequestHandler({ repository = null, now = () => new Date()
         return sendJson(response, health.ok ? 200 : 503, health);
       }
       if (request.method === 'GET' && url.pathname === '/api/dashboard') return sendJson(response, 200, await getDashboardPayload(repository));
+      if (request.method === 'GET' && url.pathname === '/api/operations') {
+        const result = await getOperationsPayload(repository);
+        return sendJson(response, result.statusCode, result.payload);
+      }
 
       if (request.method === 'GET' && url.pathname === '/api/media') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });

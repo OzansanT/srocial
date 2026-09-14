@@ -4,7 +4,12 @@ import { dirname } from 'node:path';
 import { JOB_STATES } from '../scheduler/job-states.js';
 
 function clone(value) { return structuredClone(value); }
-function emptyData() { return { posts: [], publications: [], jobs: [], accounts: [], oauthStates: [], media: [] }; }
+function emptyData() {
+  return {
+    posts: [], publications: [], jobs: [], accounts: [], oauthStates: [], media: [],
+    publicationAttempts: [], webhookEvents: [], providerStatuses: []
+  };
+}
 
 export function createJsonRepository({ filePath }) {
   let data = emptyData();
@@ -59,7 +64,10 @@ export function createJsonRepository({ filePath }) {
           jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
           accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
           oauthStates: Array.isArray(parsed.oauthStates) ? parsed.oauthStates : [],
-          media: Array.isArray(parsed.media) ? parsed.media : []
+          media: Array.isArray(parsed.media) ? parsed.media : [],
+          publicationAttempts: Array.isArray(parsed.publicationAttempts) ? parsed.publicationAttempts : [],
+          webhookEvents: Array.isArray(parsed.webhookEvents) ? parsed.webhookEvents : [],
+          providerStatuses: Array.isArray(parsed.providerStatuses) ? parsed.providerStatuses : []
         };
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
@@ -96,10 +104,47 @@ export function createJsonRepository({ filePath }) {
     createPost(record) { return mutate('posts', record); },
     createPublication(record) { return mutate('publications', record); },
     createJob(record) { return mutate('jobs', record); },
+    createPublicationAttempt(record) { return mutate('publicationAttempts', record); },
+    createWebhookEvent(record) { return mutate('webhookEvents', record); },
     updatePublication(id, patch) { return update('publications', id, patch); },
     updateJob(id, patch) { return update('jobs', id, patch); },
+    updatePublicationAttempt(id, patch) { return update('publicationAttempts', id, patch); },
+    updateWebhookEvent(id, patch) { return update('webhookEvents', id, patch); },
     getPost(id) { return stableRead(() => data.posts.find((item) => item.id === id) ?? null); },
     getPublication(id) { return stableRead(() => data.publications.find((item) => item.id === id) ?? null); },
+    findPublicationByExternalId(platform, externalId) {
+      return stableRead(() => data.publications.find((item) => item.platform === platform && item.externalId === externalId) ?? null);
+    },
+    getWebhookEventByExternalId(provider, externalEventId) {
+      return stableRead(() => data.webhookEvents.find((item) => item.provider === provider && item.externalEventId === externalEventId) ?? null);
+    },
+    listPublicationAttempts({ limit = 50 } = {}) {
+      const max = Math.max(0, Number.parseInt(limit, 10) || 0);
+      return stableRead(() => [...data.publicationAttempts]
+        .sort((a, b) => Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? ''))
+        .slice(0, max));
+    },
+    listWebhookEvents({ limit = 50 } = {}) {
+      const max = Math.max(0, Number.parseInt(limit, 10) || 0);
+      return stableRead(() => [...data.webhookEvents]
+        .sort((a, b) => Date.parse(b.receivedAt ?? '') - Date.parse(a.receivedAt ?? ''))
+        .slice(0, max));
+    },
+    upsertProviderStatus(provider, patch) {
+      return enqueueMutation(() => {
+        const normalized = String(provider ?? '').trim().toLowerCase();
+        let item = data.providerStatuses.find((candidate) => candidate.provider === normalized);
+        if (!item) {
+          item = { provider: normalized, healthState: 'UNKNOWN', lastSuccessAt: null, lastErrorAt: null, lastErrorCode: null, limitedUntil: null, updatedAt: null };
+          data.providerStatuses.push(item);
+        }
+        Object.assign(item, clone(patch), { provider: normalized });
+        return item;
+      });
+    },
+    listProviderStatuses() {
+      return stableRead(() => [...data.providerStatuses].sort((a, b) => String(a.provider).localeCompare(String(b.provider))));
+    },
     async claimDueJobs({ now = new Date(), workerId, limit = 10, lockTimeoutMs = 120000 } = {}) {
       if (!String(workerId ?? '').trim()) throw new Error('workerId is required');
       const nowMs = now.getTime();

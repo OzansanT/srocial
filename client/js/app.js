@@ -4,6 +4,7 @@ import { listPosts } from './api/posts-api.js';
 import { initializeAccounts } from './pages/accounts.js';
 import { initializeComposer } from './pages/composer.js';
 import { initializeMediaLibrary } from './pages/media-library.js';
+import { initializeOperations } from './pages/operations.js';
 import { renderDashboard, renderScheduledPosts } from './pages/dashboard.js';
 
 async function refreshPublishingData() {
@@ -51,6 +52,7 @@ async function bootstrap() {
   const composer = await initializeComposer({ onScheduled: refreshPublishingData });
   await initializeAccounts({ onChanged: composer.refreshAccounts });
   initializeMediaLibrary({ onUseMedia: composer.useMedia });
+  initializeOperations();
 
   try {
     const health = await getHealth();

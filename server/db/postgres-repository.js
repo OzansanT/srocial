@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { createPostgresOperations } from './postgres-operations.js';
 
 const { Pool } = pg;
 
@@ -9,7 +10,10 @@ const REQUIRED_TABLES = Object.freeze([
   'posts',
   'media',
   'publications',
-  'scheduler_jobs'
+  'scheduler_jobs',
+  'publication_attempts',
+  'webhook_events',
+  'provider_status'
 ]);
 
 const ACCOUNT_UPDATE_COLUMNS = Object.freeze({
@@ -192,8 +196,10 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
   if (!pool && !url) throw new Error('DATABASE_URL_REQUIRED');
   const database = pool ?? new Pool({ connectionString: url });
   const ownsPool = !pool;
+  const operations = createPostgresOperations(database, { mapPublication });
 
   return {
+    ...operations,
     async initialize() {
       const result = await database.query(
         'SELECT table_name, to_regclass(table_name) AS regclass FROM unnest($1::text[]) AS required(table_name)',

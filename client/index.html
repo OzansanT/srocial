@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/css/pages/composer.css">
   <link rel="stylesheet" href="/css/pages/accounts.css">
   <link rel="stylesheet" href="/css/pages/media-library.css">
+  <link rel="stylesheet" href="/css/pages/operations.css">
 </head>
 <body>
   <div class="app-shell">
@@ -31,7 +32,7 @@
         <a class="sidebar__link" href="#accounts">Accounts</a>
         <a class="sidebar__link" href="#contacts">Contacts</a>
         <a class="sidebar__link" href="#queue">Queue</a>
-        <a class="sidebar__link" href="#logs">Logs</a>
+        <a class="sidebar__link" href="#operations">Operations</a>
       </nav>
       <div class="sidebar__footer"><span class="status-dot" aria-hidden="true"></span><span id="service-status">Checking service…</span></div>
     </aside>
@@ -142,6 +143,32 @@
       <section class="card panel scheduled-panel" id="queue">
         <div class="panel__header"><div><p class="eyebrow">Queue</p><h2>Upcoming posts</h2></div><span class="scheduled-panel__count" id="scheduled-post-count">0 posts</span></div>
         <div id="scheduled-post-list" class="scheduled-list" aria-live="polite"></div>
+      </section>
+
+      <section class="card panel operations-panel" id="operations" aria-labelledby="operations-title">
+        <div class="panel__header">
+          <div><p class="eyebrow">Reliability</p><h2 id="operations-title">Operations Center</h2></div>
+          <button class="button button--secondary" id="refresh-operations" type="button">Refresh</button>
+        </div>
+        <p class="form-feedback" id="operations-feedback" aria-live="polite"></p>
+        <div class="operations-group">
+          <h3>Provider health</h3>
+          <div id="provider-health-list" class="operations-provider-list" aria-live="polite"></div>
+        </div>
+        <div class="operations-grid">
+          <section class="operations-group" aria-labelledby="failed-jobs-title">
+            <h3 id="failed-jobs-title">Failed &amp; retrying jobs</h3>
+            <div id="failed-job-list" class="operations-list" aria-live="polite"></div>
+          </section>
+          <section class="operations-group" aria-labelledby="attempts-title">
+            <h3 id="attempts-title">Publication attempts</h3>
+            <div id="publication-attempt-list" class="operations-list" aria-live="polite"></div>
+          </section>
+          <section class="operations-group" aria-labelledby="webhooks-title">
+            <h3 id="webhooks-title">Verified webhooks</h3>
+            <div id="webhook-event-list" class="operations-list" aria-live="polite"></div>
+          </section>
+        </div>
       </section>
     </main>
   </div>

@@ -1,3 +1,4 @@
+import { recordProviderFailure, recordProviderSuccess } from '../../operations/provider-telemetry.js';
 import { JOB_TYPES } from '../job-types.js';
 import { JOB_STATES } from '../job-states.js';
 import { PUBLICATION_STATES } from '../states.js';
@@ -35,7 +36,25 @@ function completedJobPatch(now) {
   };
 }
 
-async function handleFailure({ error, job, publication, repository, now, retryPolicy }) {
+async function startAttempt(repository, publication, job, now) {
+  if (typeof repository?.createPublicationAttempt !== 'function') return null;
+  return repository.createPublicationAttempt({
+    publicationId: publication.id,
+    attempt: Math.max(1, Number(job.attempts) || 1),
+    state: PUBLICATION_STATES.PUBLISHING,
+    providerErrorCode: null,
+    errorMessage: null,
+    startedAt: now.toISOString(),
+    finishedAt: null
+  });
+}
+
+async function finishAttempt(repository, attempt, patch) {
+  if (!attempt || typeof repository?.updatePublicationAttempt !== 'function') return null;
+  return repository.updatePublicationAttempt(attempt.id, patch);
+}
+
+async function handleFailure({ error, job, publication, attempt, repository, now, retryPolicy }) {
   const classification = retryPolicy.classifyExecutionError(error);
   const publicationState = failurePublicationState(classification.code, classification.retryable);
 
@@ -47,27 +66,45 @@ async function handleFailure({ error, job, publication, repository, now, retryPo
     });
   }
 
+  let retryAt = null;
   if (classification.retryable) {
     const delayMs = retryPolicy.getRetryDelayMs(job.attempts);
+    retryAt = new Date(now.getTime() + delayMs);
     await repository.updateJob(job.id, {
       state: JOB_STATES.RETRYING,
-      scheduledAt: new Date(now.getTime() + delayMs).toISOString(),
+      scheduledAt: retryAt.toISOString(),
       lockedAt: null,
       lockedBy: null,
       errorCode: classification.code,
       updatedAt: now.toISOString()
     });
-    return { status: JOB_STATES.RETRYING, errorCode: classification.code };
+  } else {
+    await repository.updateJob(job.id, {
+      state: JOB_STATES.FAILED,
+      lockedAt: null,
+      lockedBy: null,
+      errorCode: classification.code,
+      updatedAt: now.toISOString()
+    });
   }
 
-  await repository.updateJob(job.id, {
-    state: JOB_STATES.FAILED,
-    lockedAt: null,
-    lockedBy: null,
-    errorCode: classification.code,
-    updatedAt: now.toISOString()
+  await finishAttempt(repository, attempt, {
+    state: classification.retryable ? JOB_STATES.RETRYING : JOB_STATES.FAILED,
+    providerErrorCode: classification.code,
+    errorMessage: null,
+    finishedAt: now.toISOString()
   });
-  return { status: JOB_STATES.FAILED, errorCode: classification.code };
+  if (publication) {
+    await recordProviderFailure(repository, publication.platform, classification.code, {
+      now,
+      limitedUntil: classification.code === 'RATE_LIMIT' ? retryAt : null
+    });
+  }
+
+  return {
+    status: classification.retryable ? JOB_STATES.RETRYING : JOB_STATES.FAILED,
+    errorCode: classification.code
+  };
 }
 
 export async function executeSocialPublicationJob({
@@ -78,6 +115,7 @@ export async function executeSocialPublicationJob({
   retryPolicy = { classifyExecutionError, getRetryDelayMs }
 }) {
   let publication = null;
+  let attempt = null;
 
   try {
     if (job.type !== JOB_TYPES.SOCIAL_PUBLICATION) {
@@ -100,6 +138,7 @@ export async function executeSocialPublicationJob({
       throw executionError('ADAPTER_UNAVAILABLE', `No publish adapter registered for ${publication.platform}`);
     }
 
+    attempt = await startAttempt(repository, publication, job, now);
     const result = await adapter.publish(
       { post, publication },
       { idempotencyKey: publication.id }
@@ -119,6 +158,13 @@ export async function executeSocialPublicationJob({
     });
 
     await repository.updateJob(job.id, completedJobPatch(now));
+    await finishAttempt(repository, attempt, {
+      state: status,
+      providerErrorCode: null,
+      errorMessage: null,
+      finishedAt: now.toISOString()
+    });
+    await recordProviderSuccess(repository, publication.platform, { now });
 
     if (status === PUBLICATION_STATES.PROCESSING) {
       await repository.createJob({
@@ -139,6 +185,6 @@ export async function executeSocialPublicationJob({
 
     return { status: JOB_STATES.COMPLETED, publicationState: status };
   } catch (error) {
-    return handleFailure({ error, job, publication, repository, now, retryPolicy });
+    return handleFailure({ error, job, publication, attempt, repository, now, retryPolicy });
   }
 }
