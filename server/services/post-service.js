@@ -176,8 +176,8 @@ function validateBaseInput(input, now, destinations, platforms, media) {
       if (!destinationCaption) {
         details.push({ field: 'destinations', message: `${destination.platform || 'Destination'} requires a caption.` });
       }
-      validateMediaItems(destinationMedia, details, 'destinations');
-      validateProviderMediaCounts([destination.platform], destinationMedia.length, details, 'destinations');
+      validateMediaItems(destinationMedia, details, 'media');
+      validateProviderMediaCounts([destination.platform], destinationMedia.length, details, 'media');
     }
     validateDestinationOptions(destinations, details);
   } else {
