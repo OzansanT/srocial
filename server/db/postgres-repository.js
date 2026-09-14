@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { createPostgresComposer } from './postgres-composer.js';
 import { createPostgresOperations } from './postgres-operations.js';
 import { createPostgresScheduling } from './postgres-scheduling.js';
 import { createPostgresWhatsApp } from './postgres-whatsapp.js';
@@ -20,7 +21,11 @@ const REQUIRED_TABLES = Object.freeze([
   'whatsapp_templates',
   'campaigns',
   'campaign_recipients',
-  'whatsapp_messages'
+  'whatsapp_messages',
+  'composer_drafts',
+  'caption_templates',
+  'hashtag_collections',
+  'destination_groups'
 ]);
 
 const ACCOUNT_UPDATE_COLUMNS = Object.freeze({
@@ -48,6 +53,8 @@ const PUBLICATION_UPDATE_COLUMNS = Object.freeze({
   state: 'state',
   scheduledAt: 'scheduled_at',
   providerOptions: 'provider_options',
+  captionOverride: 'caption_override',
+  mediaOverride: 'media_override',
   externalId: 'external_id',
   externalUrl: 'external_url',
   errorCode: 'error_code',
@@ -144,6 +151,8 @@ function mapPublication(row) {
     state: row.state,
     scheduledAt: timestamp(row.scheduled_at),
     providerOptions: row.provider_options ?? {},
+    captionOverride: row.caption_override ?? null,
+    mediaOverride: row.media_override ?? null,
     externalId: row.external_id,
     externalUrl: row.external_url,
     errorCode: row.error_code,
@@ -206,11 +215,13 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
   const operations = createPostgresOperations(database, { mapPublication });
   const scheduling = createPostgresScheduling(database);
   const whatsapp = createPostgresWhatsApp(database);
+  const composer = createPostgresComposer(database);
 
   return {
     ...operations,
     ...scheduling,
     ...whatsapp,
+    ...composer,
     async initialize() {
       const result = await database.query(
         'SELECT table_name, to_regclass(table_name) AS regclass FROM unnest($1::text[]) AS required(table_name)',
@@ -373,9 +384,9 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
       const id = randomUUID();
       const result = await database.query(
         `INSERT INTO publications (
-          id, post_id, account_id, platform, state, scheduled_at, provider_options, external_id,
-          external_url, error_code, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+          id, post_id, account_id, platform, state, scheduled_at, provider_options, caption_override,
+          media_override, external_id, external_url, error_code, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
         [
           id,
           record.postId,
@@ -384,6 +395,8 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
           record.state,
           record.scheduledAt,
           record.providerOptions ?? {},
+          record.captionOverride ?? null,
+          record.mediaOverride ?? null,
           record.externalId ?? null,
           record.externalUrl ?? null,
           record.errorCode ?? null,
