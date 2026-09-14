@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { verifyMetaSignature, verifyTikTokSignature } from '../server/webhooks/signatures.js';
 import { handleMetaChallenge, handleMetaWebhook, handleTikTokWebhook } from '../server/routes/webhooks.js';
 
@@ -59,6 +59,31 @@ test('duplicate TikTok delivery is acknowledged once without repeating publicati
   assert.equal(first.statusCode, 200);
   assert.equal(second.statusCode, 200);
   assert.equal(repository.events.length, 1);
+  assert.equal(repository.publications[0].state, 'PUBLISHED');
+});
+
+test('provider retry resumes an incomplete persisted TikTok webhook instead of dropping the side effect', async () => {
+  const repository=repositoryFixture();
+  const payload={ client_key:'client', event:'post.publish.complete', create_time:1789387200, user_openid:'open-1', content:JSON.stringify({ publish_id:'publish-123', publish_type:'DIRECT_POST' }) };
+  const raw=Buffer.from(JSON.stringify(payload));
+  const fingerprint=`sha256:${createHash('sha256').update(raw).digest('hex')}`;
+  repository.events.push({
+    id:'evt-existing', provider:'tiktok', externalEventId:fingerprint,
+    eventType:'post.publish.complete', payload, signatureValid:true,
+    processingState:'RECEIVED', errorCode:null,
+    receivedAt:'2026-09-14T11:59:55.000Z', processedAt:null
+  });
+  const secret='tt-secret';
+  const timestamp='1789387200';
+  const signature=createHmac('sha256', secret).update(`${timestamp}.${raw.toString('utf8')}`).digest('hex');
+  const result=await handleTikTokWebhook({
+    repository, rawBody:raw, signature:`t=${timestamp},s=${signature}`,
+    clientSecret:secret, now:new Date('2026-09-14T12:00:00.000Z')
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.duplicate, false);
+  assert.equal(repository.events.length, 1);
+  assert.equal(repository.events[0].processingState, 'PROCESSED');
   assert.equal(repository.publications[0].state, 'PUBLISHED');
 });
 
