@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { JOB_STATES } from '../scheduler/job-states.js';
+import { createJsonAnalytics } from './json-analytics.js';
 import { createJsonComposer } from './json-composer.js';
 import { applyJsonPostLifecycleMutations, buildJsonPostOperations } from './json-post-lifecycle.js';
 
@@ -9,7 +10,7 @@ function clone(value) { return structuredClone(value); }
 function emptyData() {
   return {
     posts: [], publications: [], jobs: [], accounts: [], oauthStates: [], media: [],
-    publicationAttempts: [], webhookEvents: [], providerStatuses: [],
+    publicationAttempts: [], webhookEvents: [], providerStatuses: [], publicationMetricSnapshots: [],
     contacts: [], whatsappTemplates: [], campaigns: [], campaignRecipients: [], whatsappMessages: [],
     composerDrafts: [], captionTemplates: [], hashtagCollections: [], destinationGroups: []
   };
@@ -84,6 +85,7 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
     enqueueMutation,
     getData: () => data
   });
+  const analytics = createJsonAnalytics({ mutate, stableRead, getData: () => data });
 
   return {
     async initialize() {
@@ -99,6 +101,7 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
           publicationAttempts: Array.isArray(parsed.publicationAttempts) ? parsed.publicationAttempts : [],
           webhookEvents: Array.isArray(parsed.webhookEvents) ? parsed.webhookEvents : [],
           providerStatuses: Array.isArray(parsed.providerStatuses) ? parsed.providerStatuses : [],
+          publicationMetricSnapshots: Array.isArray(parsed.publicationMetricSnapshots) ? parsed.publicationMetricSnapshots : [],
           contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
           whatsappTemplates: Array.isArray(parsed.whatsappTemplates) ? parsed.whatsappTemplates : [],
           campaigns: Array.isArray(parsed.campaigns) ? parsed.campaigns : [],
@@ -118,6 +121,7 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
     async healthCheck() { return { ok: true, backend: 'json' }; },
     async close() {},
     ...composer,
+    ...analytics,
     createAccount(record) { return mutate('accounts', record); },
     updateAccount(id, patch) { return update('accounts', id, patch); },
     getAccount(id) { return stableRead(() => data.accounts.find((item) => item.id === id) ?? null); },
