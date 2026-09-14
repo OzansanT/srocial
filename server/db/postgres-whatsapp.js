@@ -85,7 +85,10 @@ async function updateWhitelisted(database, table, id, patch, columns, mapper) {
   const values = [];
   for (const [key, column] of Object.entries(columns)) {
     if (!Object.prototype.hasOwnProperty.call(patch, key) || patch[key] === undefined) continue;
-    values.push(patch[key]);
+    const value = table === 'campaigns' && key === 'templateComponents'
+      ? JSON.stringify(patch[key] ?? [])
+      : patch[key];
+    values.push(value);
     assignments.push(`${column} = $${values.length}`);
   }
   if (!assignments.length) {
@@ -180,7 +183,7 @@ export function createPostgresWhatsApp(database) {
           id, user_id, account_id, template_id, name, state, scheduled_at, template_components, created_at, updated_at
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
         [id, record.userId ?? null, record.accountId ?? null, record.templateId ?? null, record.name,
-          record.state, record.scheduledAt, record.templateComponents ?? [],
+          record.state, record.scheduledAt, JSON.stringify(record.templateComponents ?? []),
           record.createdAt ?? new Date(), record.updatedAt ?? record.createdAt ?? new Date()]
       );
       return mapCampaign(result.rows[0]);
