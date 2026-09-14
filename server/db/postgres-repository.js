@@ -435,8 +435,10 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
       return mapPublication(result.rows[0] ?? null);
     },
 
-    async claimDueJobs({ now = new Date(), workerId, limit = 10, lockTimeoutMs = 120000 } = {}) {
+    async claimDueJobs({ now = new Date(), workerId, limit = 10, lockTimeoutMs = 120000, types = null } = {}) {
       if (!String(workerId ?? '').trim()) throw new Error('workerId is required');
+      const normalizedTypes = Array.isArray(types) ? types.map((item) => String(item ?? '').trim()).filter(Boolean) : null;
+      if (Array.isArray(types) && normalizedTypes.length === 0) return [];
       const nowMs = now.getTime();
       const staleBefore = new Date(nowMs - Math.max(0, Number(lockTimeoutMs) || 0));
       const maxJobs = Math.max(0, Number.parseInt(limit, 10) || 0);
@@ -447,6 +449,7 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
            SELECT id
            FROM scheduler_jobs
            WHERE scheduled_at <= $1
+             AND ($5::text[] IS NULL OR type = ANY($5::text[]))
              AND (
                state IN ('SCHEDULED', 'RETRYING')
                OR (
@@ -467,7 +470,7 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
          FROM candidates
          WHERE jobs.id = candidates.id
          RETURNING jobs.*`,
-        [now, staleBefore, maxJobs, workerId]
+        [now, staleBefore, maxJobs, workerId, normalizedTypes]
       );
       return result.rows.map(mapJob);
     },
