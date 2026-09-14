@@ -73,6 +73,16 @@ function requireFutureExpiry(value, now) {
   return new Date(milliseconds).toISOString();
 }
 
+function decryptOptional(cipher, ciphertext) {
+  if (!ciphertext) return null;
+  try {
+    const value = cipher.decrypt(ciphertext);
+    return String(value ?? '').trim() || null;
+  } catch {
+    throw workerError('AUTH_ERROR');
+  }
+}
+
 export async function executeTokenRefreshJob({
   job,
   repository,
@@ -101,16 +111,13 @@ export async function executeTokenRefreshJob({
     }
 
     const cipher = requireTokenCipher(tokenCipher);
-    const originalCiphertext = account.accessTokenEncrypted;
-    if (!originalCiphertext) throw workerError('AUTH_ERROR');
+    const originalAccessCiphertext = account.accessTokenEncrypted;
+    const originalRefreshCiphertext = account.refreshTokenEncrypted ?? null;
+    if (!originalAccessCiphertext) throw workerError('AUTH_ERROR');
 
-    let accessToken;
-    try {
-      accessToken = cipher.decrypt(originalCiphertext);
-    } catch {
-      throw workerError('AUTH_ERROR');
-    }
-    if (!String(accessToken ?? '').trim()) throw workerError('AUTH_ERROR');
+    const accessToken = decryptOptional(cipher, originalAccessCiphertext);
+    const refreshToken = decryptOptional(cipher, originalRefreshCiphertext);
+    if (!accessToken) throw workerError('AUTH_ERROR');
 
     let adapter;
     try {
@@ -120,23 +127,32 @@ export async function executeTokenRefreshJob({
     }
     if (typeof adapter?.refreshAccessToken !== 'function') throw workerError('TOKEN_REFRESH_UNSUPPORTED');
 
-    const refreshed = await adapter.refreshAccessToken({ accessToken });
+    const refreshed = await adapter.refreshAccessToken({ accessToken, refreshToken });
     const refreshedToken = String(refreshed?.accessToken ?? '').trim();
     if (!refreshedToken) throw workerError('INVALID_TOKEN_REFRESH_RESULT');
+    const replacementRefreshToken = refreshed?.refreshToken == null
+      ? null
+      : String(refreshed.refreshToken).trim();
+    if (refreshed?.refreshToken != null && !replacementRefreshToken) throw workerError('INVALID_TOKEN_REFRESH_RESULT');
     const expiresAt = requireFutureExpiry(refreshed?.expiresAt, now);
 
     const latest = await repository.getAccount(account.id);
-    if (!latest || latest.state !== ACCOUNT_STATES.CONNECTED || latest.accessTokenEncrypted !== originalCiphertext) {
+    if (!latest || latest.state !== ACCOUNT_STATES.CONNECTED ||
+        latest.accessTokenEncrypted !== originalAccessCiphertext ||
+        (latest.refreshTokenEncrypted ?? null) !== originalRefreshCiphertext) {
       return cancelJob(repository, job, now, 'STALE_TOKEN_REFRESH', { stale: true });
     }
 
-    const updatedAccount = await repository.updateAccount(account.id, {
+    const accountPatch = {
       state: ACCOUNT_STATES.CONNECTED,
       accessTokenEncrypted: cipher.encrypt(refreshedToken),
       tokenExpiresAt: expiresAt,
       lastErrorCode: null,
       updatedAt: now.toISOString()
-    });
+    };
+    if (replacementRefreshToken) accountPatch.refreshTokenEncrypted = cipher.encrypt(replacementRefreshToken);
+
+    const updatedAccount = await repository.updateAccount(account.id, accountPatch);
 
     const nextRefreshAt = getNextTokenRefreshAt(updatedAccount, { now });
     if (!nextRefreshAt) {
