@@ -66,6 +66,27 @@ function mapJob(row) {
   };
 }
 
+const POST_COLUMNS = Object.freeze({
+  caption: 'caption',
+  scheduledAt: 'scheduled_at',
+  updatedAt: 'updated_at'
+});
+const PUBLICATION_COLUMNS = Object.freeze({
+  state: 'state',
+  scheduledAt: 'scheduled_at',
+  errorCode: 'error_code',
+  updatedAt: 'updated_at'
+});
+const JOB_COLUMNS = Object.freeze({
+  state: 'state',
+  scheduledAt: 'scheduled_at',
+  attempts: 'attempts',
+  lockedAt: 'locked_at',
+  lockedBy: 'locked_by',
+  errorCode: 'error_code',
+  updatedAt: 'updated_at'
+});
+
 async function withTransaction(database, work) {
   if (typeof database?.connect !== 'function') throw new Error('POSTGRES_TRANSACTION_CLIENT_REQUIRED');
   const client = await database.connect();
@@ -80,6 +101,46 @@ async function withTransaction(database, work) {
   } finally {
     client.release();
   }
+}
+
+async function updateWhitelisted(client, table, id, patch, columns) {
+  const assignments = [];
+  const values = [];
+  for (const [key, column] of Object.entries(columns)) {
+    if (!Object.prototype.hasOwnProperty.call(patch ?? {}, key) || patch[key] === undefined) continue;
+    values.push(patch[key]);
+    assignments.push(`${column} = $${values.length}`);
+  }
+  if (!assignments.length) return;
+  values.push(id);
+  const result = await client.query(
+    `UPDATE ${table} SET ${assignments.join(', ')} WHERE id = $${values.length} RETURNING id`,
+    values
+  );
+  if (!result.rows.length) throw new Error('LIFECYCLE_RECORD_NOT_FOUND');
+}
+
+async function loadPostOperations(client) {
+  const [postsResult, mediaResult, publicationsResult, jobsResult] = await Promise.all([
+    client.query('SELECT * FROM posts ORDER BY scheduled_at, id'),
+    client.query('SELECT * FROM media ORDER BY post_id, sort_order, created_at, id'),
+    client.query('SELECT * FROM publications ORDER BY scheduled_at, id'),
+    client.query('SELECT * FROM scheduler_jobs WHERE publication_id IS NOT NULL ORDER BY scheduled_at, id')
+  ]);
+  const media = mediaResult.rows.map(mapMedia);
+  const jobs = jobsResult.rows.map(mapJob);
+  const publications = publicationsResult.rows.map(mapPublication).map((publication) => ({
+    ...publication,
+    jobs: jobs.filter((job) => job.publicationId === publication.id)
+  }));
+  return postsResult.rows.map((row) => {
+    const post = mapPost(row);
+    return {
+      ...post,
+      media: media.filter((item) => item.postId === post.id),
+      publications: publications.filter((item) => item.postId === post.id)
+    };
+  });
 }
 
 export function createPostgresScheduling(database) {
@@ -165,6 +226,42 @@ export function createPostgresScheduling(database) {
         }
 
         return { post: createdPost, media: createdMedia, publications, jobs };
+      });
+    },
+
+    listPostOperations() {
+      return loadPostOperations(database);
+    },
+
+    async getPostOperation(postId) {
+      return (await loadPostOperations(database)).find((post) => post.id === postId) ?? null;
+    },
+
+    async getPublicationOperation(publicationId) {
+      for (const post of await loadPostOperations(database)) {
+        const publication = post.publications.find((item) => item.id === publicationId);
+        if (publication) return { post, publication };
+      }
+      return null;
+    },
+
+    applyPostLifecycleMutations({ mutations = [] } = {}) {
+      return withTransaction(database, async (client) => {
+        for (const mutation of mutations) {
+          await updateWhitelisted(client, 'posts', mutation.postId, mutation.postPatch ?? {}, POST_COLUMNS);
+          for (const item of mutation.publicationPatches ?? []) {
+            await updateWhitelisted(client, 'publications', item.id, item.patch ?? {}, PUBLICATION_COLUMNS);
+          }
+          for (const item of mutation.jobPatches ?? []) {
+            await updateWhitelisted(client, 'scheduler_jobs', item.id, item.patch ?? {}, JOB_COLUMNS);
+          }
+        }
+        const operations = await loadPostOperations(client);
+        return mutations.map((mutation) => {
+          const post = operations.find((item) => item.id === mutation.postId);
+          if (!post) throw new Error('LIFECYCLE_POST_NOT_FOUND');
+          return post;
+        });
       });
     }
   };
