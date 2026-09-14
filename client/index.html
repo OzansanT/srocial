@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/css/pages/operations.css">
   <link rel="stylesheet" href="/css/pages/whatsapp.css">
   <link rel="stylesheet" href="/css/pages/queue-calendar.css">
+  <link rel="stylesheet" href="/css/pages/analytics.css">
 </head>
 <body>
   <div class="app-shell">
@@ -34,6 +35,7 @@
         <a class="sidebar__link" href="#accounts">Accounts</a>
         <a class="sidebar__link" href="#whatsapp">WhatsApp</a>
         <a class="sidebar__link" href="#queue">Queue</a>
+        <a class="sidebar__link" href="#analytics" data-page="analytics">Analytics</a>
         <a class="sidebar__link" href="#operations">Operations</a>
       </nav>
       <div class="sidebar__footer"><span class="status-dot" aria-hidden="true"></span><span id="service-status">Checking service…</span></div>
@@ -294,6 +296,32 @@
           </div>
         </div>
         <div id="scheduled-post-list" class="scheduled-list" aria-live="polite"></div>
+      </section>
+
+      <section class="card panel analytics-panel" id="analyticsPanel" aria-labelledby="analytics-title">
+        <div class="panel__header">
+          <div><p class="eyebrow">Performance</p><h2 id="analytics-title">Analytics &amp; Reporting</h2></div>
+          <button class="button button--primary" id="analyticsRefresh" type="button">Refresh recent</button>
+        </div>
+        <div class="analytics-toolbar">
+          <label class="field" for="analyticsFrom"><span>From</span><input id="analyticsFrom" type="date"></label>
+          <label class="field" for="analyticsUntil"><span>Until</span><input id="analyticsUntil" type="date"></label>
+          <label class="field" for="analyticsPlatform"><span>Platform</span><select id="analyticsPlatform"><option value="">All platforms</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="threads">Threads</option><option value="tiktok">TikTok</option></select></label>
+          <label class="field" for="analyticsAccount"><span>Account</span><select id="analyticsAccount"><option value="">All accounts</option></select></label>
+          <div><small>Refresh is bounded to 25 recent published posts and never schedules content.</small></div>
+        </div>
+        <p id="analyticsStatus" class="form-feedback" aria-live="polite">Loading analytics…</p>
+        <div id="analyticsKpis" class="analytics-kpis" aria-label="Analytics KPI summary"></div>
+        <div class="analytics-layout">
+          <section class="operations-group" aria-labelledby="analytics-series-title">
+            <h3 id="analytics-series-title">Daily views</h3>
+            <div id="analyticsSeries" aria-live="polite"></div>
+          </section>
+          <section class="operations-group analytics-posts" aria-labelledby="analytics-posts-title">
+            <h3 id="analytics-posts-title">Post performance</h3>
+            <div id="analyticsPosts" aria-live="polite"></div>
+          </section>
+        </div>
       </section>
 
       <section class="card panel operations-panel" id="operations" aria-labelledby="operations-title">
