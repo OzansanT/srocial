@@ -30,6 +30,8 @@ Lifecycle actions fail closed when an external side effect may already exist.
 
 A social post can be edited or rescheduled only while every publication is still `SCHEDULED` and its social execution job is still `SCHEDULED`. A `RUNNING` job or any already-started state blocks the mutation.
 
+The repository also rechecks the state at mutation time. This closes the scheduler race where a job could be claimed after service validation but before a lifecycle change committed. PostgreSQL locks the affected post/publication/job rows inside the lifecycle transaction and checks expected state before applying patches. JSON performs the equivalent expected-state preflight against the isolated candidate snapshot before any patch is applied. A stale state is returned as a sanitized lifecycle conflict instead of overwriting newly running work.
+
 ### Cancel
 
 Cancellation is permitted only for safe scheduled/retrying publications and jobs. If a publication already has a provider `externalId`, cancellation is rejected rather than pretending a provider-side object was cancelled.
@@ -57,13 +59,13 @@ V18 resolves the previously tracked multi-record scheduling consistency gap.
 
 Social scheduling writes the post, media, publications, and scheduler jobs inside one database transaction. WhatsApp campaign scheduling likewise writes the campaign, recipients, and scheduler job inside one transaction.
 
-Bulk lifecycle changes are prevalidated and then applied in one transaction. A child failure rolls the complete operation back.
+Bulk lifecycle changes are prevalidated and then applied in one transaction. The affected lifecycle rows are locked and expected-state conditions are verified before any update. A child failure or stale scheduler state rolls the complete operation back.
 
 ### JSON
 
 The development repository applies the equivalent graph/lifecycle mutation to an isolated in-memory candidate snapshot. The candidate is atomically persisted and becomes live only after persistence succeeds.
 
-Failure-injection tests verify that partially written graphs are not published to the active repository state.
+Failure-injection and stale-state tests verify that partially written graphs or partially applied lifecycle mutations are not published to the active repository state.
 
 ## Protected API
 
@@ -109,10 +111,10 @@ The Queue and Calendar controller uses DOM node creation rather than `innerHTML`
 
 ## Verification
 
-The V18 feature-head GitHub Actions run `34847163782` passed on commit `a8a6efcca75a33751fc6a5fbffd2de16abea7715`:
+The race-safe V18 feature-head GitHub Actions run `34848350574` passed on commit `7c122e85788f25849ef3e927aa0367fb78a36b0a`:
 
 ```text
-381 tests passed
+384 tests passed
 0 tests failed
 PostgreSQL 17 migrations passed
 JavaScript syntax checks passed
@@ -123,6 +125,9 @@ Coverage includes:
 - PostgreSQL social graph rollback on child failure;
 - PostgreSQL WhatsApp graph rollback on recipient failure;
 - JSON candidate-snapshot rollback/failure injection;
+- transaction-time scheduler/lifecycle stale-state rejection for PostgreSQL;
+- candidate-snapshot stale-state rejection for JSON;
+- safe service-level mapping of stale state to a lifecycle conflict;
 - state-safe edit/reschedule/cancel/retry/duplicate behavior;
 - bulk prevalidation and atomic mutation calls;
 - lifecycle HTTP status/error contracts;
@@ -130,6 +135,8 @@ Coverage includes:
 - month/week/day calendar date generation;
 - drag-date local-time preservation;
 - dashboard Queue/Calendar wiring and safe DOM rendering.
+
+The final race fix also removed concurrent query execution on a single PostgreSQL transaction client from the lifecycle readback path.
 
 Browser E2E automation remains a separate tracked verification gap under `SR-P001`.
 
