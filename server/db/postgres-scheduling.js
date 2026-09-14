@@ -87,6 +87,21 @@ const JOB_COLUMNS = Object.freeze({
   updatedAt: 'updated_at'
 });
 
+function staleStateError() {
+  const error = new Error('LIFECYCLE_STALE_STATE');
+  error.code = 'LIFECYCLE_STALE_STATE';
+  return error;
+}
+
+function assertExpected(item, expected) {
+  if (!expected || typeof expected !== 'object') return;
+  for (const [key, value] of Object.entries(expected)) {
+    const actual = item?.[key] ?? null;
+    const wanted = value ?? null;
+    if (!Object.is(actual, wanted)) throw staleStateError();
+  }
+}
+
 async function withTransaction(database, work) {
   if (typeof database?.connect !== 'function') throw new Error('POSTGRES_TRANSACTION_CLIENT_REQUIRED');
   const client = await database.connect();
@@ -121,12 +136,10 @@ async function updateWhitelisted(client, table, id, patch, columns) {
 }
 
 async function loadPostOperations(client) {
-  const [postsResult, mediaResult, publicationsResult, jobsResult] = await Promise.all([
-    client.query('SELECT * FROM posts ORDER BY scheduled_at, id'),
-    client.query('SELECT * FROM media ORDER BY post_id, sort_order, created_at, id'),
-    client.query('SELECT * FROM publications ORDER BY scheduled_at, id'),
-    client.query('SELECT * FROM scheduler_jobs WHERE publication_id IS NOT NULL ORDER BY scheduled_at, id')
-  ]);
+  const postsResult = await client.query('SELECT * FROM posts ORDER BY scheduled_at, id');
+  const mediaResult = await client.query('SELECT * FROM media ORDER BY post_id, sort_order, created_at, id');
+  const publicationsResult = await client.query('SELECT * FROM publications ORDER BY scheduled_at, id');
+  const jobsResult = await client.query('SELECT * FROM scheduler_jobs WHERE publication_id IS NOT NULL ORDER BY scheduled_at, id');
   const media = mediaResult.rows.map(mapMedia);
   const jobs = jobsResult.rows.map(mapJob);
   const publications = publicationsResult.rows.map(mapPublication).map((publication) => ({
@@ -141,6 +154,40 @@ async function loadPostOperations(client) {
       publications: publications.filter((item) => item.postId === post.id)
     };
   });
+}
+
+async function lockLifecycleRows(client, mutations) {
+  const orderedMutations = [...mutations].sort((a, b) => String(a.postId).localeCompare(String(b.postId)));
+  for (const mutation of orderedMutations) {
+    const postResult = await client.query('SELECT id FROM posts WHERE id = $1 FOR UPDATE', [mutation.postId]);
+    if (!postResult.rows.length) throw new Error('LIFECYCLE_POST_NOT_FOUND');
+
+    const publicationPatches = [...(mutation.publicationPatches ?? [])]
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    for (const item of publicationPatches) {
+      const result = await client.query(
+        'SELECT * FROM publications WHERE id = $1 AND post_id = $2 FOR UPDATE',
+        [item.id, mutation.postId]
+      );
+      if (!result.rows.length) throw new Error('LIFECYCLE_PUBLICATION_NOT_FOUND');
+      assertExpected(mapPublication(result.rows[0]), item.expected);
+    }
+
+    const jobPatches = [...(mutation.jobPatches ?? [])]
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    for (const item of jobPatches) {
+      const result = await client.query(
+        `SELECT j.*
+         FROM scheduler_jobs j
+         JOIN publications p ON p.id = j.publication_id
+         WHERE j.id = $1 AND p.post_id = $2
+         FOR UPDATE OF j`,
+        [item.id, mutation.postId]
+      );
+      if (!result.rows.length) throw new Error('LIFECYCLE_JOB_NOT_FOUND');
+      assertExpected(mapJob(result.rows[0]), item.expected);
+    }
+  }
 }
 
 export function createPostgresScheduling(database) {
@@ -247,6 +294,7 @@ export function createPostgresScheduling(database) {
 
     applyPostLifecycleMutations({ mutations = [] } = {}) {
       return withTransaction(database, async (client) => {
+        await lockLifecycleRows(client, mutations);
         for (const mutation of mutations) {
           await updateWhitelisted(client, 'posts', mutation.postId, mutation.postPatch ?? {}, POST_COLUMNS);
           for (const item of mutation.publicationPatches ?? []) {
