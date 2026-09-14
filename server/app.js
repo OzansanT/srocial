@@ -5,7 +5,16 @@ import { readJsonBody, RequestBodyError } from './http/read-json-body.js';
 import { readRawBody } from './http/read-raw-body.js';
 import { getHealthPayload } from './routes/health.js';
 import { getDashboardPayload } from './routes/dashboard.js';
-import { createPostPayload, listPostsPayload } from './routes/posts.js';
+import {
+  bulkCancelPostsPayload,
+  bulkReschedulePostsPayload,
+  cancelPostPayload,
+  createPostPayload,
+  duplicatePostPayload,
+  listPostsPayload,
+  retryPublicationPayload,
+  updatePostPayload
+} from './routes/posts.js';
 import { disconnectAccountPayload, listAccountsPayload } from './routes/accounts.js';
 import { completeOAuthPayload, startOAuthPayload } from './routes/oauth.js';
 import { deleteMediaPayload, listMediaPayload } from './routes/media.js';
@@ -361,14 +370,59 @@ export function createRequestHandler({
 
       if (request.method === 'GET' && url.pathname === '/api/posts') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
-        const result = await listPostsPayload(repository);
+        const result = await listPostsPayload(repository, {
+          platform: url.searchParams.get('platform'),
+          accountId: url.searchParams.get('accountId'),
+          state: url.searchParams.get('state'),
+          from: url.searchParams.get('from'),
+          until: url.searchParams.get('until')
+        });
         return sendJson(response, result.statusCode, result.payload);
       }
 
       if (request.method === 'POST' && url.pathname === '/api/posts') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
-        const body = await readJsonBody(request);
-        const result = await createPostPayload(repository, body, { now: now() });
+        const result = await createPostPayload(repository, await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/posts/bulk/cancel') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await bulkCancelPostsPayload(repository, await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/posts/bulk/reschedule') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await bulkReschedulePostsPayload(repository, await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      const postMatch = url.pathname.match(/^\/api\/posts\/([^/]+)$/);
+      if (request.method === 'PATCH' && postMatch) {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await updatePostPayload(repository, decodeURIComponent(postMatch[1]), await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      const cancelPostMatch = url.pathname.match(/^\/api\/posts\/([^/]+)\/cancel$/);
+      if (request.method === 'POST' && cancelPostMatch) {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await cancelPostPayload(repository, decodeURIComponent(cancelPostMatch[1]), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      const duplicatePostMatch = url.pathname.match(/^\/api\/posts\/([^/]+)\/duplicate$/);
+      if (request.method === 'POST' && duplicatePostMatch) {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await duplicatePostPayload(repository, decodeURIComponent(duplicatePostMatch[1]), await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      const retryPublicationMatch = url.pathname.match(/^\/api\/publications\/([^/]+)\/retry$/);
+      if (request.method === 'POST' && retryPublicationMatch) {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await retryPublicationPayload(repository, decodeURIComponent(retryPublicationMatch[1]), await readJsonBody(request), { now: now() });
         return sendJson(response, result.statusCode, result.payload);
       }
 

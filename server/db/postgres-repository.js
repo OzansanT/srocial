@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { createPostgresOperations } from './postgres-operations.js';
+import { createPostgresScheduling } from './postgres-scheduling.js';
 import { createPostgresWhatsApp } from './postgres-whatsapp.js';
 
 const { Pool } = pg;
@@ -203,10 +204,12 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
   const database = pool ?? new Pool({ connectionString: url });
   const ownsPool = !pool;
   const operations = createPostgresOperations(database, { mapPublication });
+  const scheduling = createPostgresScheduling(database);
   const whatsapp = createPostgresWhatsApp(database);
 
   return {
     ...operations,
+    ...scheduling,
     ...whatsapp,
     async initialize() {
       const result = await database.query(

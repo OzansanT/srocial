@@ -1,17 +1,21 @@
 import { getSession, logout } from './api/auth-api.js';
 import { getDashboard, getHealth } from './api/dashboard-api.js';
-import { listPosts } from './api/posts-api.js';
 import { initializeAccounts } from './pages/accounts.js';
 import { initializeComposer } from './pages/composer.js';
 import { initializeMediaLibrary } from './pages/media-library.js';
 import { initializeOperations } from './pages/operations.js';
+import { initializeQueueCalendar } from './pages/queue-calendar.js';
 import { initializeWhatsApp } from './pages/whatsapp.js';
-import { renderDashboard, renderScheduledPosts } from './pages/dashboard.js';
+import { renderDashboard } from './pages/dashboard.js';
+
+let queueCalendar = { refresh: async () => {} };
+
+async function refreshDashboardOnly() {
+  renderDashboard(await getDashboard());
+}
 
 async function refreshPublishingData() {
-  const [dashboard, posts] = await Promise.all([getDashboard(), listPosts()]);
-  renderDashboard(dashboard);
-  renderScheduledPosts(posts.posts ?? []);
+  await Promise.all([refreshDashboardOnly(), queueCalendar.refresh()]);
 }
 
 async function initializeSessionControls() {
@@ -55,6 +59,7 @@ async function bootstrap() {
   initializeMediaLibrary({ onUseMedia: composer.useMedia });
   initializeWhatsApp();
   initializeOperations();
+  queueCalendar = initializeQueueCalendar({ onChanged: refreshDashboardOnly });
 
   try {
     const health = await getHealth();

@@ -195,59 +195,51 @@ export async function createScheduledPost(repository, input, { now = new Date() 
     : platforms.map((platform) => ({ platform, accountId: null, options: {} }));
   const timestamp = now.toISOString();
 
-  const post = await repository.createPost({
-    caption: validated.caption,
-    scheduledAt: validated.scheduledAt,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  });
+  if (typeof repository?.createSocialScheduleGraph !== 'function') {
+    throw new Error('ATOMIC_SOCIAL_SCHEDULING_REQUIRED');
+  }
 
-  const media = [];
-  for (const [sortOrder, item] of mediaInput.entries()) {
-    media.push(await repository.createMedia({
-      postId: post.id,
+  return repository.createSocialScheduleGraph({
+    post: {
+      caption: validated.caption,
+      scheduledAt: validated.scheduledAt,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    },
+    media: mediaInput.map((item, sortOrder) => ({
       type: item.type,
       url: item.url,
       sortOrder,
       metadata: {},
       createdAt: timestamp
-    }));
-  }
-
-  const publications = [];
-  const jobs = [];
-  for (const destination of resolvedDestinations) {
-    const publication = await repository.createPublication({
-      postId: post.id,
-      accountId: destination.accountId,
-      platform: destination.platform,
-      state: PUBLICATION_STATES.SCHEDULED,
-      scheduledAt: validated.scheduledAt,
-      providerOptions: destination.options ?? {},
-      externalId: null,
-      externalUrl: null,
-      errorCode: null,
-      createdAt: timestamp,
-      updatedAt: timestamp
-    });
-    publications.push(publication);
-    jobs.push(await repository.createJob({
-      type: JOB_TYPES.SOCIAL_PUBLICATION,
-      publicationId: publication.id,
-      campaignId: null,
-      accountId: destination.accountId,
-      state: JOB_STATES.SCHEDULED,
-      scheduledAt: validated.scheduledAt,
-      attempts: 0,
-      lockedAt: null,
-      lockedBy: null,
-      errorCode: null,
-      createdAt: timestamp,
-      updatedAt: timestamp
-    }));
-  }
-
-  return { post, media, publications, jobs };
+    })),
+    publicationPlans: resolvedDestinations.map((destination) => ({
+      publication: {
+        accountId: destination.accountId,
+        platform: destination.platform,
+        state: PUBLICATION_STATES.SCHEDULED,
+        scheduledAt: validated.scheduledAt,
+        providerOptions: destination.options ?? {},
+        externalId: null,
+        externalUrl: null,
+        errorCode: null,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      job: {
+        type: JOB_TYPES.SOCIAL_PUBLICATION,
+        accountId: destination.accountId,
+        state: JOB_STATES.SCHEDULED,
+        scheduledAt: validated.scheduledAt,
+        attempts: 0,
+        lockedAt: null,
+        lockedBy: null,
+        errorCode: null,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }
+    }))
+  });
 }
 
 export async function listScheduledPosts(repository) {

@@ -61,6 +61,25 @@ function mapRecipient(row) {
   };
 }
 
+function mapJob(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type,
+    publicationId: row.publication_id,
+    campaignId: row.campaign_id,
+    accountId: row.account_id,
+    state: row.state,
+    scheduledAt: timestamp(row.scheduled_at),
+    attempts: Number(row.attempts ?? 0),
+    lockedAt: timestamp(row.locked_at),
+    lockedBy: row.locked_by,
+    errorCode: row.error_code,
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at)
+  };
+}
+
 function mapMessage(row) {
   if (!row) return null;
   return {
@@ -101,6 +120,22 @@ async function updateWhitelisted(database, table, id, patch, columns, mapper) {
     values
   );
   return mapper(result.rows[0] ?? null);
+}
+
+async function withTransaction(database, work) {
+  if (typeof database?.connect !== 'function') throw new Error('POSTGRES_TRANSACTION_CLIENT_REQUIRED');
+  const client = await database.connect();
+  try {
+    await client.query('BEGIN');
+    const value = await work(client);
+    await client.query('COMMIT');
+    return value;
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 const CONTACT_COLUMNS = Object.freeze({
@@ -187,6 +222,44 @@ export function createPostgresWhatsApp(database) {
           record.createdAt ?? new Date(), record.updatedAt ?? record.createdAt ?? new Date()]
       );
       return mapCampaign(result.rows[0]);
+    },
+    createWhatsAppCampaignGraph({ campaign, recipients = [], job } = {}) {
+      return withTransaction(database, async (client) => {
+        const campaignId = randomUUID();
+        const campaignResult = await client.query(
+          `INSERT INTO campaigns (
+            id, user_id, account_id, template_id, name, state, scheduled_at, template_components, created_at, updated_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+          [campaignId, campaign.userId ?? null, campaign.accountId ?? null, campaign.templateId ?? null, campaign.name,
+            campaign.state, campaign.scheduledAt, JSON.stringify(campaign.templateComponents ?? []),
+            campaign.createdAt ?? new Date(), campaign.updatedAt ?? campaign.createdAt ?? new Date()]
+        );
+        const createdCampaign = mapCampaign(campaignResult.rows[0]);
+
+        const createdRecipients = [];
+        for (const record of recipients) {
+          const result = await client.query(
+            `INSERT INTO campaign_recipients (id, campaign_id, contact_id, state, created_at)
+             VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+            [randomUUID(), campaignId, record.contactId, record.state ?? 'QUEUED', record.createdAt ?? new Date()]
+          );
+          createdRecipients.push(mapRecipient(result.rows[0]));
+        }
+
+        const jobRecord = job ?? {};
+        const jobResult = await client.query(
+          `INSERT INTO scheduler_jobs (
+            id, type, publication_id, campaign_id, account_id, state, scheduled_at,
+            attempts, locked_at, locked_by, error_code, created_at, updated_at
+          ) VALUES ($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          [randomUUID(), jobRecord.type, campaignId, jobRecord.accountId ?? createdCampaign.accountId ?? null,
+            jobRecord.state, jobRecord.scheduledAt, Number(jobRecord.attempts ?? 0), jobRecord.lockedAt ?? null,
+            jobRecord.lockedBy ?? null, jobRecord.errorCode ?? null, jobRecord.createdAt ?? new Date(),
+            jobRecord.updatedAt ?? jobRecord.createdAt ?? new Date()]
+        );
+
+        return { campaign: createdCampaign, recipients: createdRecipients, job: mapJob(jobResult.rows[0]) };
+      });
     },
     updateCampaign(id, patch) {
       return updateWhitelisted(database, 'campaigns', id, patch, CAMPAIGN_COLUMNS, mapCampaign);

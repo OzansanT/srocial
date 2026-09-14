@@ -25,9 +25,18 @@ function repositoryFixture() {
     async getWhatsAppTemplate(id) { return structuredClone(templates.find((x) => x.id === id) ?? null); },
     async listWhatsAppTemplates() { return structuredClone(templates); },
     async upsertWhatsAppTemplate(record) { const item = { id: `tpl-${templates.length + 1}`, ...record }; templates.push(item); return item; },
-    async createCampaign(record) { const item = { id: `campaign-${campaigns.length + 1}`, ...record }; campaigns.push(item); return item; },
-    async createCampaignRecipient(record) { const item = { id: `recipient-${recipients.length + 1}`, ...record }; recipients.push(item); return item; },
-    async createJob(record) { const item = { id: `job-${jobs.length + 1}`, ...record }; jobs.push(item); return item; }
+    async createWhatsAppCampaignGraph({ campaign, recipients: recipientRecords = [], job }) {
+      const createdCampaign = { id: `campaign-${campaigns.length + 1}`, ...structuredClone(campaign) };
+      campaigns.push(createdCampaign);
+      const createdRecipients = recipientRecords.map((record) => {
+        const item = { id: `recipient-${recipients.length + 1}`, ...structuredClone(record), campaignId: createdCampaign.id };
+        recipients.push(item);
+        return structuredClone(item);
+      });
+      const createdJob = { id: `job-${jobs.length + 1}`, ...structuredClone(job), campaignId: createdCampaign.id, publicationId: null };
+      jobs.push(createdJob);
+      return { campaign: structuredClone(createdCampaign), recipients: createdRecipients, job: structuredClone(createdJob) };
+    }
   };
 }
 
