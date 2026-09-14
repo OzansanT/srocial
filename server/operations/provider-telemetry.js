@@ -1,4 +1,4 @@
-const PROVIDERS = new Set(['instagram', 'facebook', 'threads', 'tiktok']);
+const PROVIDERS = new Set(['instagram', 'facebook', 'threads', 'tiktok', 'whatsapp']);
 
 function normalizeProvider(value) {
   return String(value ?? '').trim().toLowerCase();
