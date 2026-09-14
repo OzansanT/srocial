@@ -1,3 +1,4 @@
+import { resolvePublicationContent } from '../publication-content.js';
 import { validateFacebookPost } from './validator.js';
 
 function adapterError(code, retryable = false) {
@@ -34,16 +35,21 @@ export function createFacebookPublishingAdapter({ client, resolveCredentials, ge
 
   const capabilities = Object.freeze({ text: true, image: true, video: true, carousel: false });
 
+  async function resolveContent(post, publication) {
+    const baseMedia = await getMedia(post?.id);
+    return resolvePublicationContent({ post, publication, baseMedia });
+  }
+
   async function validatePost({ post, publication } = {}) {
     accountId(publication);
-    const media = await getMedia(post?.id);
-    return validateFacebookPost({ post, media });
+    const content = await resolveContent(post, publication);
+    return validateFacebookPost({ post: content.post, media: content.media });
   }
 
   async function publish({ post = {}, publication = {} } = {}) {
     const boundAccountId = accountId(publication);
-    const media = await getMedia(post.id);
-    const normalized = validateFacebookPost({ post, media });
+    const content = await resolveContent(post, publication);
+    const normalized = validateFacebookPost({ post: content.post, media: content.media });
     const credentials = await resolveCredentials(boundAccountId);
     const pageId = requireId(credentials?.providerAccountId);
     const accessToken = String(credentials?.accessToken ?? '');
