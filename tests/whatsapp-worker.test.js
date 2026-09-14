@@ -114,5 +114,5 @@ test('scheduler social-only mode excludes WHATSAPP_CAMPAIGN from allowed types',
     tick: async (input) => { calls.push(input); return { claimed: 0 }; }
   });
   await callback();
-  assert.deepEqual(calls[0].allowedJobTypes.sort(), ['SOCIAL_PUBLICATION', 'SOCIAL_PUBLICATION_STATUS', 'TOKEN_REFRESH'].sort());
+  assert.deepEqual(calls[0].allowedJobTypes.sort(), ['SOCIAL_PUBLICATION', 'STATUS_CHECK', 'TOKEN_REFRESH'].sort());
 });
