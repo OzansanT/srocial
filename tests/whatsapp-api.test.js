@@ -103,7 +103,11 @@ test('campaign creation rejects opted-out recipients and unapproved templates be
 
 test('WhatsApp route payloads expose safe contact/template data and sync through server adapter', async () => {
   const repository = repositoryFixture();
-  const created = await createWhatsAppContactPayload(repository, { phoneNumber: '+905551112233' }, { now: new Date('2026-09-14T12:00:00.000Z') });
+  const created = await createWhatsAppContactPayload(repository, {
+    phoneNumber: '+905551112233',
+    consentStatus: 'OPTED_IN',
+    consentSource: 'test-fixture'
+  }, { now: new Date('2026-09-14T12:00:00.000Z') });
   assert.equal(created.statusCode, 201);
   assert.equal((await listWhatsAppContactsPayload(repository)).payload.contacts.length, 1);
   assert.equal((await listWhatsAppTemplatesPayload(repository)).payload.templates[0].name, 'order_update');
