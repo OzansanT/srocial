@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/css/pages/media-library.css">
   <link rel="stylesheet" href="/css/pages/operations.css">
   <link rel="stylesheet" href="/css/pages/whatsapp.css">
+  <link rel="stylesheet" href="/css/pages/queue-calendar.css">
 </head>
 <body>
   <div class="app-shell">
@@ -180,8 +181,39 @@
         </div>
       </section>
 
-      <section class="card panel scheduled-panel" id="queue">
-        <div class="panel__header"><div><p class="eyebrow">Queue</p><h2>Upcoming posts</h2></div><span class="scheduled-panel__count" id="scheduled-post-count">0 posts</span></div>
+      <section class="card panel queue-calendar-panel" id="calendar" aria-labelledby="calendar-section-title">
+        <div class="panel__header queue-calendar-header">
+          <div><p class="eyebrow">Calendar</p><h2 id="calendar-section-title">Publishing calendar</h2></div>
+          <div class="queue-calendar-controls">
+            <label class="field" for="calendar-mode"><span>View</span><select id="calendar-mode"><option value="month">Month</option><option value="week">Week</option><option value="day">Day</option></select></label>
+            <div class="calendar-nav" aria-label="Calendar navigation">
+              <button class="button button--secondary" id="calendar-prev" type="button">Previous</button>
+              <button class="button button--secondary" id="calendar-today" type="button">Today</button>
+              <button class="button button--secondary" id="calendar-next" type="button">Next</button>
+            </div>
+          </div>
+        </div>
+        <div class="calendar-heading"><h3 id="calendar-title">Calendar</h3><p id="calendar-feedback" class="form-feedback" aria-live="polite"></p></div>
+        <div id="calendar-grid" class="calendar-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="card panel scheduled-panel queue-panel" id="queue" aria-labelledby="queue-title">
+        <div class="panel__header"><div><p class="eyebrow">Queue</p><h2 id="queue-title">Scheduled post lifecycle</h2></div><span class="scheduled-panel__count" id="scheduled-post-count">0 posts</span></div>
+        <form id="queue-filter-form" class="queue-filter-form">
+          <label class="field" for="queue-platform-filter"><span>Platform</span><select id="queue-platform-filter"><option value="">All platforms</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="threads">Threads</option><option value="tiktok">TikTok</option></select></label>
+          <label class="field" for="queue-account-filter"><span>Account</span><select id="queue-account-filter"><option value="">All accounts</option></select></label>
+          <label class="field" for="queue-state-filter"><span>Status</span><select id="queue-state-filter"><option value="">All states</option><option value="SCHEDULED">Scheduled</option><option value="RETRYING">Retrying</option><option value="PROCESSING">Processing</option><option value="PUBLISHED">Published</option><option value="FAILED">Failed</option><option value="CANCELLED">Cancelled</option></select></label>
+          <div class="queue-filter-actions"><button class="button button--primary" type="submit">Apply filters</button><button class="button button--secondary" id="refresh-queue" type="button">Refresh</button></div>
+        </form>
+        <p id="queue-feedback" class="form-feedback" aria-live="polite"></p>
+        <div class="queue-toolbar" aria-label="Bulk queue actions">
+          <div><strong>Bulk actions</strong><p>Select posts below before running an action.</p></div>
+          <div class="queue-toolbar__schedule">
+            <label class="field" for="queue-bulk-time"><span>New publish time</span><input id="queue-bulk-time" type="datetime-local"></label>
+            <button class="button button--secondary" id="queue-bulk-reschedule" type="button" disabled>Reschedule selected</button>
+            <button class="button button--danger" id="queue-bulk-cancel" type="button" disabled>Cancel selected</button>
+          </div>
+        </div>
         <div id="scheduled-post-list" class="scheduled-list" aria-live="polite"></div>
       </section>
 
