@@ -5,6 +5,8 @@ import { createOAuthProviderRegistry } from './auth/oauth-provider-registry.js';
 import { createTokenCipher } from './auth/token-crypto.js';
 import { createRepositoryFromEnvironment } from './db/create-repository.js';
 import { createMediaStoreFromEnvironment } from './media/create-media-store.js';
+import { createWhatsAppAdapter } from './messaging/whatsapp/adapter.js';
+import { getWhatsAppConfig } from './messaging/whatsapp/config.js';
 import { registerFacebookProvider } from './platforms/facebook/index.js';
 import { registerInstagramProvider } from './platforms/instagram/index.js';
 import { createPlatformRegistry } from './platforms/registry.js';
@@ -24,13 +26,18 @@ await repository.initialize();
 
 const oauthProviderRegistry = createOAuthProviderRegistry();
 const platformRegistry = createPlatformRegistry();
+const messagingRegistry = new Map();
 const tokenCipher = process.env.TOKEN_ENCRYPTION_KEY ? createTokenCipher(process.env.TOKEN_ENCRYPTION_KEY) : null;
 const mediaStore = createMediaStoreFromEnvironment({ env: runtimeEnv });
 await mediaStore.initialize();
+const whatsappConfig = getWhatsAppConfig(runtimeEnv);
+if (whatsappConfig) messagingRegistry.set('whatsapp', createWhatsAppAdapter({ config: whatsappConfig }));
 const webhookConfig = {
   metaVerifyToken: String(process.env.META_WEBHOOK_VERIFY_TOKEN ?? ''),
   metaAppSecret: String(process.env.META_WEBHOOK_APP_SECRET ?? ''),
-  tiktokClientSecret: String(process.env.TIKTOK_CLIENT_SECRET ?? '')
+  tiktokClientSecret: String(process.env.TIKTOK_CLIENT_SECRET ?? ''),
+  whatsappVerifyToken: String(whatsappConfig?.verifyToken ?? ''),
+  whatsappAppSecret: String(whatsappConfig?.appSecret ?? '')
 };
 
 registerInstagramProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
@@ -41,8 +48,10 @@ registerTikTokProvider({ env: process.env, oauthRegistry: oauthProviderRegistry,
 const schedulerLoop = startSchedulerLoop({
   enabled: process.env.SCHEDULER_ENABLED,
   allowRealPublish: process.env.ALLOW_REAL_PUBLISH,
+  allowRealWhatsApp: process.env.ALLOW_REAL_WHATSAPP,
   repository,
   registry: platformRegistry,
+  messagingRegistry,
   oauthRegistry: oauthProviderRegistry,
   tokenCipher,
   intervalMs: process.env.SCHEDULER_INTERVAL_MS,
@@ -58,7 +67,17 @@ const mediaRetentionLoop = startMediaRetentionLoop({
   maxDeletes: process.env.MEDIA_ORPHAN_CLEANUP_MAX_DELETES
 });
 
-const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, platformRegistry, tokenCipher, publicBaseUrl, mediaStore, appAuth, webhookConfig }));
+const server = createServer(createRequestHandler({
+  repository,
+  oauthProviderRegistry,
+  platformRegistry,
+  tokenCipher,
+  publicBaseUrl,
+  mediaStore,
+  appAuth,
+  webhookConfig,
+  whatsappAdapter: messagingRegistry.get('whatsapp') ?? null
+}));
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 
 let shuttingDown = false;
