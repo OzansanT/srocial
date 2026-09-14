@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { JOB_STATES } from '../scheduler/job-states.js';
+import { applyJsonPostLifecycleMutations, buildJsonPostOperations } from './json-post-lifecycle.js';
 
 function clone(value) { return structuredClone(value); }
 function emptyData() {
@@ -317,6 +318,24 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
       return stableRead(() => [...data.posts]
         .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt))
         .map((post) => ({ ...post, publications: data.publications.filter((item) => item.postId === post.id) })));
+    },
+    listPostOperations() {
+      return stableRead(() => buildJsonPostOperations(data));
+    },
+    getPostOperation(postId) {
+      return stableRead(() => buildJsonPostOperations(data).find((post) => post.id === postId) ?? null);
+    },
+    getPublicationOperation(publicationId) {
+      return stableRead(() => {
+        for (const post of buildJsonPostOperations(data)) {
+          const publication = post.publications.find((item) => item.id === publicationId);
+          if (publication) return { post, publication };
+        }
+        return null;
+      });
+    },
+    applyPostLifecycleMutations({ mutations = [] } = {}) {
+      return enqueueAtomicMutation((candidate) => applyJsonPostLifecycleMutations(candidate, mutations));
     }
   };
 }
