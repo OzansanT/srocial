@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { createPostgresAnalytics } from './postgres-analytics.js';
 import { createPostgresComposer } from './postgres-composer.js';
 import { createPostgresOperations } from './postgres-operations.js';
 import { createPostgresScheduling } from './postgres-scheduling.js';
@@ -17,6 +18,7 @@ const REQUIRED_TABLES = Object.freeze([
   'publication_attempts',
   'webhook_events',
   'provider_status',
+  'publication_metric_snapshots',
   'contacts',
   'whatsapp_templates',
   'campaigns',
@@ -216,12 +218,14 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
   const scheduling = createPostgresScheduling(database);
   const whatsapp = createPostgresWhatsApp(database);
   const composer = createPostgresComposer(database);
+  const analytics = createPostgresAnalytics(database);
 
   return {
     ...operations,
     ...scheduling,
     ...whatsapp,
     ...composer,
+    ...analytics,
     async initialize() {
       const result = await database.query(
         'SELECT table_name, to_regclass(table_name) AS regclass FROM unnest($1::text[]) AS required(table_name)',
