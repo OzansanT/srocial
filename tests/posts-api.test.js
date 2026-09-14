@@ -5,13 +5,22 @@ import { once } from 'node:events';
 import { createRequestHandler } from '../server/app.js';
 
 function memoryRepository() {
-  const posts = [], publications = [], jobs = [];
+  const posts = [], publications = [], jobs = [], media = [];
   let id = 0;
   const add = (list, record) => { const item = { id: String(++id), ...structuredClone(record) }; list.push(item); return structuredClone(item); };
   return {
-    async createPost(record) { return add(posts, record); },
-    async createPublication(record) { return add(publications, record); },
-    async createJob(record) { return add(jobs, record); },
+    async createSocialScheduleGraph({ post, media: mediaRecords = [], publicationPlans = [] }) {
+      const createdPost = add(posts, post);
+      const createdMedia = mediaRecords.map((record) => add(media, { ...record, postId: createdPost.id }));
+      const createdPublications = [];
+      const createdJobs = [];
+      for (const plan of publicationPlans) {
+        const publication = add(publications, { ...plan.publication, postId: createdPost.id });
+        createdPublications.push(publication);
+        createdJobs.push(add(jobs, { ...plan.job, publicationId: publication.id, campaignId: null }));
+      }
+      return { post: createdPost, media: createdMedia, publications: createdPublications, jobs: createdJobs };
+    },
     async listJobs() { return structuredClone(jobs); },
     async listPostsWithPublications() { return posts.map((post) => ({ ...structuredClone(post), publications: structuredClone(publications.filter((item) => item.postId === post.id)) })); }
   };
