@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createAnalyticsRegistry } from './analytics/registry.js';
 import { createRequestHandler } from './app.js';
 import { createAppAuth } from './auth/create-app-auth.js';
 import { createOAuthProviderRegistry } from './auth/oauth-provider-registry.js';
@@ -26,6 +27,7 @@ await repository.initialize();
 
 const oauthProviderRegistry = createOAuthProviderRegistry();
 const platformRegistry = createPlatformRegistry();
+const analyticsRegistry = createAnalyticsRegistry();
 const messagingRegistry = new Map();
 const tokenCipher = process.env.TOKEN_ENCRYPTION_KEY ? createTokenCipher(process.env.TOKEN_ENCRYPTION_KEY) : null;
 const mediaStore = createMediaStoreFromEnvironment({ env: runtimeEnv });
@@ -40,10 +42,10 @@ const webhookConfig = {
   whatsappAppSecret: String(whatsappConfig?.appSecret ?? '')
 };
 
-registerInstagramProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
-registerFacebookProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
-registerThreadsProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
-registerTikTokProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
+registerInstagramProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, analyticsRegistry, repository, cipher: tokenCipher });
+registerFacebookProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, analyticsRegistry, repository, cipher: tokenCipher });
+registerThreadsProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, analyticsRegistry, repository, cipher: tokenCipher });
+registerTikTokProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, analyticsRegistry, repository, cipher: tokenCipher });
 
 const schedulerLoop = startSchedulerLoop({
   enabled: process.env.SCHEDULER_ENABLED,
@@ -71,6 +73,7 @@ const server = createServer(createRequestHandler({
   repository,
   oauthProviderRegistry,
   platformRegistry,
+  analyticsRegistry,
   tokenCipher,
   publicBaseUrl,
   mediaStore,
