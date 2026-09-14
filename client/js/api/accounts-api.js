@@ -17,3 +17,7 @@ export function disconnectAccount(id) {
     method: 'POST'
   });
 }
+
+export function getTikTokCreatorInfo(accountId) {
+  return requestJson(`/api/accounts/${encodeURIComponent(accountId)}/tiktok/creator-info`);
+}
