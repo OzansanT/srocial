@@ -53,6 +53,14 @@ function socialJobs(publication) {
     .filter((job) => job.type === JOB_TYPES.SOCIAL_PUBLICATION || job.type === JOB_TYPES.RETRY_PUBLICATION);
 }
 
+function publicationExpected(publication) {
+  return { state: publication.state, externalId: publication.externalId ?? null };
+}
+
+function jobExpected(job) {
+  return { state: job.state };
+}
+
 function ensureEditable(post) {
   if (!post?.publications?.length) conflict('publication_missing');
   for (const publication of post.publications) {
@@ -97,12 +105,18 @@ function editMutation(post, input, now) {
 
   const publicationPatches = [];
   const jobPatches = [];
-  if (scheduledAt) {
-    for (const publication of post.publications) {
-      publicationPatches.push({ id: publication.id, patch: { scheduledAt, updatedAt: timestamp } });
-      for (const job of socialJobs(publication)) {
-        jobPatches.push({ id: job.id, patch: { scheduledAt, updatedAt: timestamp } });
-      }
+  for (const publication of post.publications) {
+    publicationPatches.push({
+      id: publication.id,
+      expected: publicationExpected(publication),
+      patch: scheduledAt ? { scheduledAt, updatedAt: timestamp } : {}
+    });
+    for (const job of socialJobs(publication)) {
+      jobPatches.push({
+        id: job.id,
+        expected: jobExpected(job),
+        patch: scheduledAt ? { scheduledAt, updatedAt: timestamp } : {}
+      });
     }
   }
   return { postId: post.id, postPatch, publicationPatches, jobPatches };
@@ -116,10 +130,12 @@ function cancelMutation(post, now) {
     postPatch: { updatedAt: timestamp },
     publicationPatches: post.publications.map((publication) => ({
       id: publication.id,
+      expected: publicationExpected(publication),
       patch: { state: 'CANCELLED', updatedAt: timestamp }
     })),
     jobPatches: post.publications.flatMap((publication) => socialJobs(publication).map((job) => ({
       id: job.id,
+      expected: jobExpected(job),
       patch: { state: 'CANCELLED', lockedAt: null, lockedBy: null, updatedAt: timestamp }
     })))
   };
@@ -160,7 +176,12 @@ async function publicationOperation(repository, publicationId) {
 
 async function apply(repository, mutations) {
   if (typeof repository?.applyPostLifecycleMutations !== 'function') throw new Error('ATOMIC_LIFECYCLE_MUTATION_REQUIRED');
-  return repository.applyPostLifecycleMutations({ mutations });
+  try {
+    return await repository.applyPostLifecycleMutations({ mutations });
+  } catch (error) {
+    if (error?.code === 'LIFECYCLE_STALE_STATE') conflict('stale_state');
+    throw error;
+  }
 }
 
 export async function listPostOperations(repository, filters = {}) {
@@ -215,9 +236,14 @@ export async function retryPublicationLifecycle({ repository, publicationId, inp
   const results = await apply(repository, [{
     postId: post.id,
     postPatch: { updatedAt: timestamp },
-    publicationPatches: [{ id: publication.id, patch: { state: 'SCHEDULED', scheduledAt, errorCode: null, updatedAt: timestamp } }],
+    publicationPatches: [{
+      id: publication.id,
+      expected: publicationExpected(publication),
+      patch: { state: 'SCHEDULED', scheduledAt, errorCode: null, updatedAt: timestamp }
+    }],
     jobPatches: [{
       id: job.id,
+      expected: jobExpected(job),
       patch: { state: 'SCHEDULED', scheduledAt, attempts: 0, lockedAt: null, lockedBy: null, errorCode: null, updatedAt: timestamp }
     }]
   }]);
