@@ -27,6 +27,11 @@ const platformRegistry = createPlatformRegistry();
 const tokenCipher = process.env.TOKEN_ENCRYPTION_KEY ? createTokenCipher(process.env.TOKEN_ENCRYPTION_KEY) : null;
 const mediaStore = createMediaStoreFromEnvironment({ env: runtimeEnv });
 await mediaStore.initialize();
+const webhookConfig = {
+  metaVerifyToken: String(process.env.META_WEBHOOK_VERIFY_TOKEN ?? ''),
+  metaAppSecret: String(process.env.META_WEBHOOK_APP_SECRET ?? ''),
+  tiktokClientSecret: String(process.env.TIKTOK_CLIENT_SECRET ?? '')
+};
 
 registerInstagramProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
 registerFacebookProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
@@ -53,7 +58,7 @@ const mediaRetentionLoop = startMediaRetentionLoop({
   maxDeletes: process.env.MEDIA_ORPHAN_CLEANUP_MAX_DELETES
 });
 
-const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, platformRegistry, tokenCipher, publicBaseUrl, mediaStore, appAuth }));
+const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, platformRegistry, tokenCipher, publicBaseUrl, mediaStore, appAuth, webhookConfig }));
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 
 let shuttingDown = false;
