@@ -6,11 +6,12 @@ const PROVIDER_LABELS = Object.freeze({
   threads: 'Threads',
   tiktok: 'TikTok'
 });
-const OAUTH_ENABLED_PROVIDERS = new Set(['instagram', 'facebook', 'threads']);
+const OAUTH_ENABLED_PROVIDERS = new Set(['instagram', 'facebook', 'threads', 'tiktok']);
 const CONNECT_BUTTONS = Object.freeze({
   instagram: '#connect-instagram',
   facebook: '#connect-facebook',
-  threads: '#connect-threads'
+  threads: '#connect-threads',
+  tiktok: '#connect-tiktok'
 });
 const OAUTH_ERROR_MESSAGES = Object.freeze({
   oauth_code_required: 'The provider did not return an authorization code.',

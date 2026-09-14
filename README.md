@@ -4,20 +4,22 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, and bu
 
 The project uses one scheduling engine with isolated provider adapters. Instagram, Facebook, Threads, TikTok, and WhatsApp Business therefore do not become five unrelated applications. WhatsApp remains a separate messaging/campaign subsystem rather than a public-post adapter.
 
-## Current Status — V14
+## Current Status — V15
 
 The runnable foundation includes:
 
 - vanilla HTML/CSS/JavaScript dashboard, Accounts panel, Media Library, and account-bound composer;
 - provider-neutral Accounts/OAuth infrastructure;
-- browser Instagram, Facebook Pages, and Threads Connect / Reconnect / Disconnect controls;
+- browser Instagram, Facebook Pages, Threads, and TikTok Connect / Reconnect / Disconnect controls;
 - encrypted provider-token persistence with AES-256-GCM;
 - one-time hashed OAuth state with expiry/replay protection;
 - Instagram professional-account OAuth plus single-image/Reel publishing and status flows;
 - Facebook Pages OAuth plus deterministic Page-token resolution, text/image/Reel publishing, and Reel status flows;
 - Threads OAuth plus text/image/video container publishing and status flows;
-- automatic long-lived Instagram and Threads access-token refresh through account-bound `TOKEN_REFRESH` scheduler jobs;
+- TikTok Login Kit OAuth plus Creator Info, privacy/interaction-aware Direct Post for one photo/video, and async status polling;
+- automatic Instagram, Threads, and TikTok access-token refresh through account-bound `TOKEN_REFRESH` scheduler jobs, including TikTok refresh-token rotation;
 - refresh retry, expiry/error state handling, deduplication, and reconnect-race protection;
+- provider-specific publication settings persisted separately from generic post content;
 - direct JPEG/PNG/WebP/MP4 uploads with byte-signature validation;
 - Media Library preview, reuse, URL copy, reference-protected deletion, usage reporting, and total-storage quota;
 - local media storage plus an S3-compatible object-storage driver using AWS Signature Version 4;
@@ -57,7 +59,7 @@ For any network/public deployment, enable application authentication and use HTT
 | Instagram | browser account management + OAuth + automatic long-lived token refresh + account identity + image/Reel publish/status adapter |
 | Facebook Pages | browser account management + OAuth + Page access-token resolution + text/image/Reel publish/status adapter |
 | Threads | browser account management + OAuth + automatic long-lived token refresh + text/image/video publish/status adapter |
-| TikTok | scheduling model ready; provider adapter not implemented |
+| TikTok | browser account management + OAuth + rotating token refresh + Creator Info + privacy-aware photo/video Direct Post + status adapter |
 | WhatsApp Business | planned separate messaging/campaign subsystem |
 
 ## Architecture
@@ -67,7 +69,7 @@ Browser
   |
   +--> Admin login --> signed HttpOnly session
   |
-  +--> Accounts UI --> OAuth --> Instagram / Facebook Pages / Threads
+  +--> Accounts UI --> OAuth --> Instagram / Facebook Pages / Threads / TikTok
   |
   +--> Media Library <--> Media Store (local | S3-compatible)
   |
@@ -78,7 +80,7 @@ Browser
           |
           +--> Post
           +--> Media
-          +--> Publication(accountId)
+          +--> Publication(accountId + providerOptions)
           `--> Scheduler Job
                    |
                    v
@@ -145,7 +147,7 @@ Run tests:
 npm test
 ```
 
-See `HOW_TO_RUN.md` for the beginner-oriented guide, authentication setup, and PostgreSQL setup steps. See `docs/V12_MEDIA_STORAGE.md` for media-storage configuration, `docs/V13_INSTAGRAM_TOKEN_REFRESH.md` for token-refresh behavior, and `docs/V14_META_PROVIDERS.md` for Facebook Pages and Threads setup/behavior.
+See `HOW_TO_RUN.md` for the beginner-oriented guide, authentication setup, and PostgreSQL setup steps. See `docs/V12_MEDIA_STORAGE.md` for media-storage configuration, `docs/V13_INSTAGRAM_TOKEN_REFRESH.md` for token-refresh behavior, `docs/V14_META_PROVIDERS.md` for Facebook Pages and Threads setup/behavior, and `docs/V15_TIKTOK_PROVIDER.md` for TikTok setup, Content Posting requirements, and production verification notes.
 
 ## Environment
 
@@ -197,6 +199,9 @@ FACEBOOK_PAGE_ID=
 THREADS_APP_ID=
 THREADS_APP_SECRET=
 THREADS_API_VERSION=v1.0
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+TIKTOK_SCOPES=user.info.basic,video.publish
 ```
 
 Srocial does not automatically load `.env` files. Supply environment values through the shell, process manager, container, or deployment environment.
@@ -338,6 +343,7 @@ The dashboard currently supports browser account management for:
 Connect Instagram
 Connect Facebook
 Connect Threads
+Connect TikTok
 Reconnect
 Disconnect
 ```
@@ -356,9 +362,11 @@ GET /api/oauth/:provider/callback
 
 Browser callbacks redirect back toward the Accounts section using only sanitized Srocial result codes. If the browser no longer has a valid Srocial application session, the redirected dashboard request goes to the login page.
 
-Instagram and Threads connections that return token expiry metadata schedule account-bound long-lived token refresh work through the existing scheduler. Scheduled/retrying refresh jobs are reused on reconnect; running refresh jobs are protected against stale-result overwrite.
+Instagram, Threads, and TikTok connections that return token expiry metadata schedule account-bound token refresh work through the existing scheduler. Scheduled/retrying refresh jobs are reused on reconnect; running refresh jobs are protected against stale-result overwrite. TikTok refresh additionally supports refresh-token rotation and stale-checks both encrypted credential values before writing replacements.
 
 For Facebook Pages, `FACEBOOK_PAGE_ID` makes Page selection deterministic. Without it, Srocial auto-selects only if the authenticating Meta user returns exactly one eligible managed Page; multiple Pages fail closed with `PAGE_SELECTION_REQUIRED`.
+
+For TikTok Direct Post, the composer loads current Creator Info for the selected account and requires a provider-returned privacy level plus explicit consent. Production media URLs used with `PULL_FROM_URL` must belong to a domain or URL prefix verified in the TikTok developer application. See `docs/V15_TIKTOK_PROVIDER.md`.
 
 ## Scheduling API
 
@@ -390,7 +398,7 @@ Content-Type: application/json
 
 With application auth enabled this endpoint requires a valid application session and same-origin mutation validation.
 
-Srocial validates that every explicit account exists, is `CONNECTED`, and matches the selected platform. Destinations are deduplicated by `(platform, accountId)`.
+Srocial validates that every explicit account exists, is `CONNECTED`, and matches the selected platform. Destinations are deduplicated by `(platform, accountId)`. Provider-specific destination options are persisted on the publication rather than the generic post.
 
 Generic media rules:
 
@@ -399,7 +407,7 @@ Generic media rules:
 - at most 10 media records per post at the generic layer;
 - provider adapters may impose stricter rules.
 
-V14 Facebook Pages and Threads adapters accept at most one media item per publication. See `docs/V14_META_PROVIDERS.md` for provider-specific behavior.
+V14 Facebook Pages and Threads adapters accept at most one media item per publication. V15 TikTok Direct Post requires exactly one image or video plus creator-approved publishing options. See `docs/V14_META_PROVIDERS.md` and `docs/V15_TIKTOK_PROVIDER.md` for provider-specific behavior.
 
 ## HTTP Surface
 
@@ -424,6 +432,7 @@ GET    /api/posts
 POST   /api/posts
 GET    /api/dashboard
 GET    /api/accounts
+GET    /api/accounts/:id/tiktok/creator-info
 POST   /api/accounts/:id/disconnect
 POST   /api/oauth/:provider/start
 GET    /api/media
@@ -478,7 +487,7 @@ FAILED
 CANCELLED
 ```
 
-Default retry delays are 1 minute, 5 minutes, 15 minutes, then 60 minutes thereafter. Provider `PROCESSING` results use status-check jobs rather than republishing original content. Instagram and Threads token refresh use the same scheduler and retry policy rather than introducing provider-specific timer subsystems.
+Default retry delays are 1 minute, 5 minutes, 15 minutes, then 60 minutes thereafter. Provider `PROCESSING` results use status-check jobs rather than republishing original content. Instagram, Threads, and TikTok token refresh use the same scheduler and retry policy rather than introducing provider-specific timer subsystems.
 
 ## Data Model
 
@@ -494,6 +503,8 @@ oauth_states
 webhook_events
 ```
 
+V15 adds `publications.provider_options` so provider-specific user choices can travel with a publication without expanding the generic post record.
+
 Application sessions are stateless signed cookies; the current implementation does not add user/session database tables for dashboard authentication.
 
 ## Verification
@@ -507,7 +518,9 @@ npm test
 find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-Coverage includes PostgreSQL migrations/persistence/concurrency; application authentication and same-origin controls; V12 local/S3 media storage, signature validation, quotas, deletion/reference protection, and retention cleanup; V13 Instagram refresh HTTP normalization, refresh scheduling/deduplication, encrypted worker execution, retry/expiry handling, reconnect-race protection, and scheduler dispatch; and V14 Facebook/Threads config, OAuth/token flows, provider HTTP normalization, publishing/status transitions, credential isolation, account registration, and Accounts UI behavior.
+Coverage includes PostgreSQL migrations/persistence/concurrency; application authentication and same-origin controls; V12 local/S3 media storage, signature validation, quotas, deletion/reference protection, and retention cleanup; V13 Instagram refresh HTTP normalization, refresh scheduling/deduplication, encrypted worker execution, retry/expiry handling, reconnect-race protection, and scheduler dispatch; V14 Facebook/Threads config, OAuth/token flows, provider HTTP normalization, publishing/status transitions, credential isolation, account registration, and Accounts UI behavior; and V15 TikTok OAuth/refresh rotation, Creator Info, publication-option persistence, photo/video Direct Post payloads, status normalization, registration, protected creator-info route, scheduling validation, and Accounts/composer UI behavior.
+
+Real TikTok provider verification is tracked separately in `PROBLEMS.md` because CI does not have developer-app credentials, an approved publishing account, or a verified production media domain.
 
 ## Repository Structure
 
@@ -516,6 +529,7 @@ srocial/
 |- .github/workflows/test.yml
 |- README.md
 |- HOW_TO_RUN.md
+|- PROBLEMS.md
 |- updaterules.md
 |- client/
 |  |- login.html
@@ -531,9 +545,11 @@ srocial/
 |  `- platforms/
 |     |- instagram/
 |     |- facebook/
-|     `- threads/
+|     |- threads/
+|     `- tiktok/
 |- tests/
 |- docs/superpowers/
+|- docs/V15_TIKTOK_PROVIDER.md
 |- .env.example
 `- package.json
 ```
@@ -542,14 +558,14 @@ srocial/
 
 Next priorities:
 
-1. implement TikTok OAuth and Content Posting;
-2. add real provider webhook processing and provider-health/rate-limit visibility;
-3. implement WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
-4. add calendar/queue operational controls, drafts, edit/cancel/retry controls, and analytics;
+1. add real provider webhook processing plus provider-health and rate-limit visibility;
+2. implement WhatsApp contacts, templates, campaigns, and recipient-level delivery tracking;
+3. add calendar/queue operational controls, drafts, edit/cancel/retry controls, and analytics;
+4. add browser end-to-end coverage for critical operator flows;
 5. if multi-user access becomes necessary, design database-backed identities, roles, session revocation, and proxy-aware distributed rate limiting as a separate security project.
 
 ## Development Rules
 
-All contributors and AI coding agents must read `updaterules.md` before changing the project.
+All contributors and AI coding agents must read `updaterules.md` and `PROBLEMS.md` before changing the project.
 
-`README.md` defines current capability and architecture. `updaterules.md` defines how Srocial is allowed to evolve.
+`README.md` defines current capability and architecture. `updaterules.md` defines how Srocial is allowed to evolve. `PROBLEMS.md` is the persistent tracker for unresolved implementation or verification gaps.

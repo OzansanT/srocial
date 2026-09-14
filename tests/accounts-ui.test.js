@@ -23,7 +23,7 @@ test('Facebook Page and Threads accounts support reconnect through provider OAut
   assert.equal(threads.providerLabel, 'Threads'); assert.equal(threads.identity, '@threader'); assert.equal(threads.canReconnect, true); assert.equal(threads.canDisconnect, false);
 });
 
-test('TikTok remains unsupported for OAuth reconnect until its provider adapter exists', () => {
+test('TikTok account supports reconnect through provider OAuth', () => {
   const model = buildAccountViewModel({ id:'acc-tt', provider:'tiktok', displayName:'TikTok', state:'CONNECTED' });
-  assert.equal(model.providerLabel, 'TikTok'); assert.equal(model.canReconnect, false); assert.equal(model.canDisconnect, true);
+  assert.equal(model.providerLabel, 'TikTok'); assert.equal(model.canReconnect, true); assert.equal(model.canDisconnect, true);
 });

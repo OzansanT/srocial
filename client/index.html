@@ -73,6 +73,25 @@
               <small class="platform-picker__help">Only connected accounts can be scheduled. Provider integrations are enabled independently.</small>
             </fieldset>
 
+            <fieldset class="platform-picker" id="tiktok-publishing-options" hidden>
+              <legend>TikTok Direct Post settings</legend>
+              <p id="tiktok-creator-identity" class="platform-picker__help"></p>
+              <label class="field" for="tiktok-privacy-level"><span>Privacy</span><select id="tiktok-privacy-level" name="tiktok:privacyLevel" disabled><option value="">Select privacy level</option></select><small>Privacy choices are loaded from TikTok for the selected creator. Srocial does not choose a default.</small></label>
+              <div class="platform-account-grid" aria-label="TikTok interaction settings">
+                <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:allowComment" disabled> Allow comments</label>
+                <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:allowDuet" disabled> Allow Duet</label>
+                <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:allowStitch" disabled> Allow Stitch</label>
+                <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:isAigc"> AI-generated content</label>
+              </div>
+              <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:commercialContent"> This post contains commercial content</label>
+              <div class="platform-account-grid" aria-label="TikTok commercial content disclosure">
+                <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:brandOrganic"> Your brand / promotional content</label>
+                <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:brandContent"> Branded content / paid partnership</label>
+              </div>
+              <label class="platform-account-row__choice"><input type="checkbox" name="tiktok:consent"> By posting, I agree to TikTok's Music Usage Confirmation and confirm I am authorized to publish this content.</label>
+              <p id="tiktok-capabilities-feedback" class="form-feedback" aria-live="polite"></p>
+            </fieldset>
+
             <div class="media-upload">
               <div class="media-upload__controls">
                 <label class="field" for="media-file"><span>Upload media</span><input id="media-file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" aria-describedby="media-upload-help"></label>
@@ -100,6 +119,7 @@
             <button class="button button--primary" id="connect-instagram" type="button">Connect Instagram</button>
             <button class="button button--secondary" id="connect-facebook" type="button">Connect Facebook</button>
             <button class="button button--secondary" id="connect-threads" type="button">Connect Threads</button>
+            <button class="button button--secondary" id="connect-tiktok" type="button">Connect TikTok</button>
           </div>
         </div>
         <p class="form-feedback" id="accounts-feedback" aria-live="polite"></p>

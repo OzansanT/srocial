@@ -36,6 +36,7 @@ const PUBLICATION_UPDATE_COLUMNS = Object.freeze({
   platform: 'platform',
   state: 'state',
   scheduledAt: 'scheduled_at',
+  providerOptions: 'provider_options',
   externalId: 'external_id',
   externalUrl: 'external_url',
   errorCode: 'error_code',
@@ -131,6 +132,7 @@ function mapPublication(row) {
     platform: row.platform,
     state: row.state,
     scheduledAt: timestamp(row.scheduled_at),
+    providerOptions: row.provider_options ?? {},
     externalId: row.external_id,
     externalUrl: row.external_url,
     errorCode: row.error_code,
@@ -354,9 +356,9 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
       const id = randomUUID();
       const result = await database.query(
         `INSERT INTO publications (
-          id, post_id, account_id, platform, state, scheduled_at, external_id,
+          id, post_id, account_id, platform, state, scheduled_at, provider_options, external_id,
           external_url, error_code, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
         [
           id,
           record.postId,
@@ -364,6 +366,7 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
           record.platform,
           record.state,
           record.scheduledAt,
+          record.providerOptions ?? {},
           record.externalId ?? null,
           record.externalUrl ?? null,
           record.errorCode ?? null,

@@ -9,8 +9,15 @@ const MAX_MEDIA = 10;
 const PROVIDER_MEDIA_CONTRACTS = Object.freeze({
   instagram: Object.freeze({ label: 'Instagram', min: 1, max: 1 }),
   facebook: Object.freeze({ label: 'Facebook', min: 0, max: 1 }),
-  threads: Object.freeze({ label: 'Threads', min: 0, max: 1 })
+  threads: Object.freeze({ label: 'Threads', min: 0, max: 1 }),
+  tiktok: Object.freeze({ label: 'TikTok', min: 1, max: 1 })
 });
+const TIKTOK_PRIVACY_LEVELS = new Set([
+  'PUBLIC_TO_EVERYONE',
+  'MUTUAL_FOLLOW_FRIENDS',
+  'FOLLOWER_OF_CREATOR',
+  'SELF_ONLY'
+]);
 
 export class ValidationError extends Error {
   constructor(details) {
@@ -30,6 +37,22 @@ function normalizePlatforms(platforms) {
   return [...new Set(platforms.map(normalizePlatform).filter(Boolean))];
 }
 
+function normalizeProviderOptions(platform, value) {
+  if (platform !== 'tiktok') return {};
+  const options = value && typeof value === 'object' ? value : {};
+  return {
+    privacyLevel: String(options.privacyLevel ?? '').trim(),
+    allowComment: options.allowComment === true,
+    allowDuet: options.allowDuet === true,
+    allowStitch: options.allowStitch === true,
+    commercialContent: options.commercialContent === true,
+    brandOrganic: options.brandOrganic === true,
+    brandContent: options.brandContent === true,
+    isAigc: options.isAigc === true,
+    consent: options.consent === true
+  };
+}
+
 function normalizeDestinations(destinations) {
   if (!Array.isArray(destinations)) return [];
   const seen = new Set();
@@ -41,7 +64,11 @@ function normalizeDestinations(destinations) {
     const key = `${platform}:${accountId}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    normalized.push({ platform, accountId });
+    normalized.push({
+      platform,
+      accountId,
+      options: normalizeProviderOptions(platform, destination?.options)
+    });
   }
   return normalized;
 }
@@ -62,6 +89,22 @@ function validateProviderMediaCounts(requestedPlatforms, mediaCount, details) {
       ? `${contract.label} currently requires exactly one media item.`
       : `${contract.label} currently supports at most one media item.`;
     details.push({ field: 'media', message });
+  }
+}
+
+function validateDestinationOptions(destinations, details) {
+  for (const destination of destinations) {
+    if (destination.platform !== 'tiktok') continue;
+    const options = destination.options ?? {};
+    if (!TIKTOK_PRIVACY_LEVELS.has(options.privacyLevel)) {
+      details.push({ field: 'destinations', message: 'TikTok requires a manually selected privacy level.' });
+    }
+    if (options.consent !== true) {
+      details.push({ field: 'destinations', message: 'TikTok requires explicit posting and music-usage consent.' });
+    }
+    if (options.commercialContent && !options.brandOrganic && !options.brandContent) {
+      details.push({ field: 'destinations', message: 'TikTok commercial content requires a disclosure type.' });
+    }
   }
 }
 
@@ -92,6 +135,7 @@ function validateBaseInput(input, now, destinations, platforms, media) {
     details.push({ field: 'media', message: `A post can contain at most ${MAX_MEDIA} media items.` });
   }
   validateProviderMediaCounts(requestedPlatforms, media.length, details);
+  if (usesDestinations) validateDestinationOptions(destinations, details);
   for (const item of media) {
     if (!MEDIA_TYPES.has(item.type)) {
       details.push({ field: 'media', message: `Unsupported media type: ${item.type || 'empty'}.` });
@@ -148,7 +192,7 @@ export async function createScheduledPost(repository, input, { now = new Date() 
   const validated = validateBaseInput(input, now, destinations, platforms, mediaInput);
   const resolvedDestinations = validated.usesDestinations
     ? await validateDestinationAccounts(repository, destinations)
-    : platforms.map((platform) => ({ platform, accountId: null }));
+    : platforms.map((platform) => ({ platform, accountId: null, options: {} }));
   const timestamp = now.toISOString();
 
   const post = await repository.createPost({
@@ -179,7 +223,9 @@ export async function createScheduledPost(repository, input, { now = new Date() 
       platform: destination.platform,
       state: PUBLICATION_STATES.SCHEDULED,
       scheduledAt: validated.scheduledAt,
+      providerOptions: destination.options ?? {},
       externalId: null,
+      externalUrl: null,
       errorCode: null,
       createdAt: timestamp,
       updatedAt: timestamp
@@ -195,6 +241,7 @@ export async function createScheduledPost(repository, input, { now = new Date() 
       attempts: 0,
       lockedAt: null,
       lockedBy: null,
+      errorCode: null,
       createdAt: timestamp,
       updatedAt: timestamp
     }));
