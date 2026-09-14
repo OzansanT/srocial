@@ -1,5 +1,7 @@
+import { registerAnalyticsProvider } from '../../analytics/registry.js';
 import { registerOAuthProvider } from '../../auth/oauth-provider-registry.js';
 import { registerPlatform } from '../registry.js';
+import { createThreadsAnalyticsAdapter } from './analytics.js';
 import { createThreadsOAuthProvider } from './auth.js';
 import { createThreadsClient } from './client.js';
 import { getThreadsConfig } from './config.js';
@@ -12,7 +14,7 @@ function authError() {
   return error;
 }
 
-export function registerThreadsProvider({ env = process.env, oauthRegistry, platformRegistry, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
+export function registerThreadsProvider({ env = process.env, oauthRegistry, platformRegistry, analyticsRegistry = null, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
   const config = getThreadsConfig(env);
   if (!config) return { configured: false };
   if (!oauthRegistry || !platformRegistry || !repository) throw new Error('THREADS_RUNTIME_DEPENDENCIES_REQUIRED');
@@ -37,5 +39,6 @@ export function registerThreadsProvider({ env = process.env, oauthRegistry, plat
   });
   registerOAuthProvider(oauthRegistry, 'threads', oauthProvider);
   registerPlatform(platformRegistry, 'threads', publishingAdapter);
+  if (analyticsRegistry) registerAnalyticsProvider(analyticsRegistry, 'threads', createThreadsAnalyticsAdapter({ client, resolveCredentials }));
   return { configured: true, apiVersion: config.apiVersion, scopes: [...config.scopes] };
 }
