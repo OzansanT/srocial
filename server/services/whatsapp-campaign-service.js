@@ -34,40 +34,42 @@ export async function createWhatsAppCampaign({ repository, input, now = new Date
   }
   if (details.length) fail(details);
 
+  if (typeof repository?.createWhatsAppCampaignGraph !== 'function') {
+    throw new Error('ATOMIC_WHATSAPP_SCHEDULING_REQUIRED');
+  }
+
   const timestamp = now.toISOString();
-  const campaign = await repository.createCampaign({
-    userId: null,
-    accountId: template.accountId ?? null,
-    templateId: template.id,
-    name,
-    state: 'SCHEDULED',
-    scheduledAt: new Date(scheduledMs).toISOString(),
-    templateComponents,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  });
-  const recipients = [];
-  for (const contact of contacts) {
-    recipients.push(await repository.createCampaignRecipient({
-      campaignId: campaign.id,
+  const scheduledAt = new Date(scheduledMs).toISOString();
+  return repository.createWhatsAppCampaignGraph({
+    campaign: {
+      userId: null,
+      accountId: template.accountId ?? null,
+      templateId: template.id,
+      name,
+      state: 'SCHEDULED',
+      scheduledAt,
+      templateComponents,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    },
+    recipients: contacts.map((contact) => ({
       contactId: contact.id,
       state: 'QUEUED',
       createdAt: timestamp
-    }));
-  }
-  const job = await repository.createJob({
-    type: JOB_TYPES.WHATSAPP_CAMPAIGN,
-    campaignId: campaign.id,
-    state: JOB_STATES.SCHEDULED,
-    scheduledAt: campaign.scheduledAt,
-    attempts: 0,
-    lockedAt: null,
-    lockedBy: null,
-    errorCode: null,
-    createdAt: timestamp,
-    updatedAt: timestamp
+    })),
+    job: {
+      type: JOB_TYPES.WHATSAPP_CAMPAIGN,
+      accountId: template.accountId ?? null,
+      state: JOB_STATES.SCHEDULED,
+      scheduledAt,
+      attempts: 0,
+      lockedAt: null,
+      lockedBy: null,
+      errorCode: null,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }
   });
-  return { campaign, recipients, job };
 }
 
 export async function listWhatsAppCampaigns(repository) {
