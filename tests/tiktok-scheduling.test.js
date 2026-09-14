@@ -22,10 +22,26 @@ function repository() {
   return {
     records,
     async getAccount(id){ return id === account.id ? structuredClone(account) : null; },
-    async createPost(record){ const item={id:'post-1',...record}; records.posts.push(item); return structuredClone(item); },
-    async createMedia(record){ const item={id:'media-1',...record}; records.media.push(item); return structuredClone(item); },
-    async createPublication(record){ const item={id:'pub-1',...record}; records.publications.push(item); return structuredClone(item); },
-    async createJob(record){ const item={id:'job-1',...record}; records.jobs.push(item); return structuredClone(item); }
+    async createSocialScheduleGraph({ post, media = [], publicationPlans = [] }) {
+      const createdPost = { id:'post-1', ...structuredClone(post) };
+      records.posts.push(createdPost);
+      const createdMedia = media.map((record, index) => {
+        const item = { id:`media-${index + 1}`, ...structuredClone(record), postId:createdPost.id };
+        records.media.push(item);
+        return structuredClone(item);
+      });
+      const publications = [];
+      const jobs = [];
+      for (const [index, plan] of publicationPlans.entries()) {
+        const publication = { id:`pub-${index + 1}`, ...structuredClone(plan.publication), postId:createdPost.id };
+        records.publications.push(publication);
+        publications.push(structuredClone(publication));
+        const job = { id:`job-${index + 1}`, ...structuredClone(plan.job), publicationId:publication.id, campaignId:null };
+        records.jobs.push(job);
+        jobs.push(structuredClone(job));
+      }
+      return { post:structuredClone(createdPost), media:createdMedia, publications, jobs };
+    }
   };
 }
 
