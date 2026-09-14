@@ -2,37 +2,39 @@
 
 Srocial is a self-hosted social-media publishing, scheduling, monitoring, and business-messaging dashboard.
 
-The project uses one scheduler with isolated provider adapters. Instagram, Facebook Pages, Threads, and TikTok share the publishing runtime; WhatsApp Business remains a separate messaging/campaign subsystem.
+Instagram, Facebook Pages, Threads, and TikTok share the social publishing runtime. WhatsApp Business is intentionally a separate contacts/templates/campaign subsystem that reuses the same repository, scheduler infrastructure, verified-webhook layer, and Operations Center.
 
-## Current Status — V16
+## Current Status — V17
 
-The runnable foundation includes:
+The runnable foundation now includes:
 
-- vanilla HTML/CSS/JavaScript dashboard, Accounts, Media Library, composer, queue, and Operations Center;
+- vanilla HTML/CSS/JavaScript dashboard, Accounts, Media Library, composer, queue, Operations Center, and WhatsApp operator surface;
 - provider-neutral OAuth/account infrastructure with encrypted credentials;
 - Instagram professional-account OAuth plus image/Reel publishing and status flows;
 - Facebook Pages OAuth plus deterministic Page selection and text/image/Reel publishing;
 - Threads OAuth plus text/image/video publishing and status flows;
 - TikTok Login Kit OAuth, Creator Info, privacy/interaction-aware Direct Post for one photo/video, rotating refresh tokens, and async status polling;
 - direct JPEG/PNG/WebP/MP4 upload, local or S3-compatible storage, Media Library reuse/deletion/quota, and optional orphan cleanup;
-- one persistent scheduler with stale-lock recovery, retry/backoff, status checks, token refresh, and idempotency guards;
+- one persistent scheduler with stale-lock recovery, retry/backoff, status checks, token refresh, idempotency guards, and execution-domain filtering;
 - JSON development persistence and PostgreSQL production persistence with transaction-safe job claims and checksum-verified migrations;
 - opt-in single-administrator application authentication, signed HttpOnly sessions, same-origin mutation protection, and process-local rate limiting;
-- **publication-attempt history for external publishing calls**;
-- **verified Meta and TikTok webhook ingestion with duplicate-delivery protection**;
-- **TikTok Content Posting webhook synchronization and authorization-removal handling**;
-- **provider health and active rate-limit visibility**;
-- **protected Operations API plus Operations Center dashboard UI**;
+- publication-attempt history, verified Meta/TikTok/WhatsApp webhooks, provider health, and active rate-limit visibility;
+- **WhatsApp Business contacts with explicit consent/eligibility**;
+- **approved WhatsApp template discovery/synchronization**;
+- **scheduled WhatsApp campaigns with recipient-level state**;
+- **duplicate-send-safe WhatsApp worker behavior and signed delivery/read/failure webhooks**;
+- protected Operations and WhatsApp management APIs plus browser UI;
 - GitHub Actions coverage against PostgreSQL 17.
 
-Safe publishing defaults remain:
+Safe execution defaults remain:
 
 ```text
-ALLOW_REAL_PUBLISH=false
 SCHEDULER_ENABLED=false
+ALLOW_REAL_PUBLISH=false
+ALLOW_REAL_WHATSAPP=false
 ```
 
-The recurring scheduler starts only when both values are explicitly `true`.
+The scheduler starts only when `SCHEDULER_ENABLED=true` and at least one execution gate is explicitly enabled. Social jobs and WhatsApp campaign jobs are claimed independently, so enabling WhatsApp cannot trigger social publishing and vice versa.
 
 ## Supported Channels
 
@@ -42,7 +44,7 @@ The recurring scheduler starts only when both values are explicitly `true`.
 | Facebook Pages | account management + OAuth + Page-token resolution + text/image/Reel publish/status adapter |
 | Threads | account management + OAuth + long-lived token refresh + text/image/video publish/status adapter |
 | TikTok | account management + OAuth + rotating token refresh + Creator Info + privacy-aware photo/video Direct Post + status adapter |
-| WhatsApp Business | planned separate messaging/campaign subsystem |
+| WhatsApp Business | contacts + consent + approved templates + scheduled campaigns + recipient/message states + signed delivery webhooks |
 
 ## Architecture
 
@@ -52,13 +54,15 @@ Browser
   +--> Admin session
   +--> Accounts / OAuth
   +--> Media Library
-  +--> Composer
+  +--> Social Composer / Queue
+  +--> WhatsApp Contacts / Templates / Campaigns
   +--> Operations Center
   |
   v
 Node HTTP application
   |
-  +--> Post Service
+  +--> Social Post Service
+  +--> WhatsApp Campaign Services
   +--> Operations API
   +--> Verified Webhook Routes
   |
@@ -68,21 +72,20 @@ Repository (JSON | PostgreSQL)
   +--> posts / media / publications
   +--> scheduler_jobs
   +--> publication_attempts
-  +--> webhook_events
-  `--> provider_status
-          |
-          v
-      Scheduler Loop
-    claim / lock / retry
-       /      |       \
-  Publish   Status   Token Refresh
-       \      |      /
-        Provider adapters
+  +--> webhook_events / provider_status
+  +--> contacts / whatsapp_templates
+  `--> campaigns / campaign_recipients / whatsapp_messages
               |
-     Instagram / Facebook / Threads / TikTok
+              v
+          Scheduler Loop
+       claim / lock / retry
+        /              \
+ Social execution   WhatsApp campaign
+      |                    |
+ Provider adapters   WhatsApp adapter
 ```
 
-Provider-specific API behavior remains inside provider modules. SQL stays under `server/db/`. Operations telemetry observes the existing scheduler rather than creating a second execution system.
+Provider-specific behavior remains inside provider/messaging modules. SQL stays under `server/db/`. Operations telemetry observes the existing scheduler instead of creating a parallel execution system.
 
 ## Technology
 
@@ -126,17 +129,16 @@ For PostgreSQL, run migrations before startup:
 npm run db:migrate
 ```
 
-Normal `npm start` never applies migrations automatically.
-
-See `HOW_TO_RUN.md` for the beginner-oriented setup guide.
+Normal `npm start` never applies migrations automatically. See `HOW_TO_RUN.md` for beginner-oriented setup.
 
 ## Environment
 
-Important settings are documented in `.env.example`. Key groups are:
+Important settings are documented in `.env.example`.
 
 ```text
-ALLOW_REAL_PUBLISH=false
 SCHEDULER_ENABLED=false
+ALLOW_REAL_PUBLISH=false
+ALLOW_REAL_WHATSAPP=false
 PUBLIC_BASE_URL=http://127.0.0.1:3000
 
 APP_AUTH_ENABLED=false
@@ -148,10 +150,6 @@ DATABASE_DRIVER=json
 DATABASE_URL=postgres://...
 TOKEN_ENCRYPTION_KEY=<long-random-secret>
 
-MEDIA_STORAGE_DRIVER=local
-MEDIA_UPLOAD_DIR=./data/uploads
-MEDIA_PUBLIC_BASE_URL=
-
 INSTAGRAM_APP_ID=
 INSTAGRAM_APP_SECRET=
 FACEBOOK_APP_ID=
@@ -160,27 +158,31 @@ THREADS_APP_ID=
 THREADS_APP_SECRET=
 TIKTOK_CLIENT_KEY=
 TIKTOK_CLIENT_SECRET=
-TIKTOK_SCOPES=user.info.basic,video.publish
 
 META_WEBHOOK_VERIFY_TOKEN=
 META_WEBHOOK_APP_SECRET=
+
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_BUSINESS_ACCOUNT_ID=
+WHATSAPP_VERIFY_TOKEN=
+WHATSAPP_APP_SECRET=
+WHATSAPP_GRAPH_API_VERSION=v26.0
 ```
 
-Srocial does not automatically load `.env` files. Supply values through the shell, process manager, container, or deployment environment.
-
-Provider credentials, administrator credentials, encryption keys, app secrets, session secrets, database credentials, and object-storage credentials are server-only.
+Srocial does not automatically load `.env` files. Supply values through the shell, process manager, container, or deployment environment. Provider credentials, administrator credentials, encryption keys, app/session secrets, database credentials, object-storage credentials, and WhatsApp access tokens are server-only.
 
 ## Application Authentication
 
-Application authentication is opt-in for local-development compatibility:
+Authentication remains opt-in for local-development compatibility:
 
 ```text
 APP_AUTH_ENABLED=false
 ```
 
-For network/public deployments, enable it and use HTTPS. The current security model is deliberately single-administrator; multi-user identities/RBAC are a later project.
+For network/public deployments, enable it and use HTTPS. The current security model is deliberately single-administrator; full database-backed users/RBAC remains tracked separately in `PROBLEMS.md`.
 
-When authentication is enabled, management APIs and dashboard assets are default-deny. Public exceptions exist only where infrastructure/providers require reachability.
+When authentication is enabled, dashboard/management APIs are default-deny. Public exceptions exist only where infrastructure/providers require reachability.
 
 ### Public surface
 
@@ -192,10 +194,12 @@ GET/HEAD  /media/:key
 GET       /api/webhooks/meta
 POST      /api/webhooks/meta
 POST      /api/webhooks/tiktok
+GET       /api/webhooks/whatsapp
+POST      /api/webhooks/whatsapp
 GET/HEAD  login document/assets
 ```
 
-Webhook POST routes are public at the application-session layer but accept state-changing payloads only after provider signature verification.
+Webhook POST routes are public at the administrator-session layer but accept state-changing provider payloads only after signature verification.
 
 ### Protected management surface
 
@@ -213,44 +217,23 @@ POST   /api/oauth/:provider/start
 GET    /api/media
 POST   /api/media/uploads
 DELETE /api/media/:key
+
+GET    /api/whatsapp/contacts
+POST   /api/whatsapp/contacts
+POST   /api/whatsapp/contacts/:id/consent
+GET    /api/whatsapp/templates
+POST   /api/whatsapp/templates/sync
+GET    /api/whatsapp/campaigns
+POST   /api/whatsapp/campaigns
 ```
 
 Authenticated mutations are same-origin checked. Login/API rate limits are process-local and intentionally do not trust forwarded IP headers.
 
-## Accounts and OAuth
+## Social Accounts and Scheduling
 
-The dashboard supports:
+The Accounts UI supports Instagram, Facebook, Threads, and TikTok connect/reconnect/disconnect workflows. Instagram, Threads, and TikTok refresh credentials through account-bound `TOKEN_REFRESH` jobs. TikTok refresh tokens may rotate.
 
-```text
-Connect Instagram
-Connect Facebook
-Connect Threads
-Connect TikTok
-Reconnect
-Disconnect
-```
-
-OAuth starts at:
-
-```text
-POST /api/oauth/:provider/start
-```
-
-Provider callback:
-
-```text
-GET /api/oauth/:provider/callback
-```
-
-Instagram, Threads, and TikTok token refresh uses account-bound `TOKEN_REFRESH` jobs through the same scheduler. TikTok additionally supports refresh-token rotation.
-
-For Facebook Pages, `FACEBOOK_PAGE_ID` can make Page selection deterministic. Without it, Srocial auto-selects only when exactly one eligible Page is returned.
-
-For TikTok, current Creator Info is loaded before scheduling and rechecked before publishing. Production `PULL_FROM_URL` media must come from a domain/prefix accepted by the TikTok developer application. See `docs/V15_TIKTOK_PROVIDER.md`.
-
-## Scheduling API
-
-Preferred request:
+Preferred social scheduling request:
 
 ```http
 POST /api/posts
@@ -276,92 +259,72 @@ Content-Type: application/json
 }
 ```
 
-Every explicit account must exist, be `CONNECTED`, and match the selected platform. Provider-specific user choices are stored on the publication rather than the generic post record.
+Every explicit account must exist, be `CONNECTED`, and match the selected platform. Provider-specific choices are stored on the publication rather than the generic post record.
 
 ## Operations Center — V16
 
-V16 adds the operational layer requested by the roadmap.
+V16 added publication-attempt history, verified Meta/TikTok webhook ingestion, provider health/rate-limit snapshots, TikTok publication/account synchronization, a protected Operations API, and dashboard visibility.
 
-### Publication attempts
+Verified raw webhook bytes are fingerprinted into provider-scoped event IDs so duplicate deliveries are acknowledged without repeating side effects. Raw webhook payloads and provider credentials are not returned by the Operations API.
 
-Before an external publish call, Srocial creates a `publication_attempts` record. Completion/retry/failure updates the same attempt without persisting raw provider exception text or credentials.
+See `docs/V16_OPERATIONS_CENTER.md`.
 
-### Provider health
+## WhatsApp Business — V17
 
-Provider status values are:
+V17 adds a separate messaging subsystem rather than pretending WhatsApp is a social-post destination.
+
+### Contacts and consent
+
+Contacts use E.164 numbers and one of:
 
 ```text
 UNKNOWN
-HEALTHY
-DEGRADED
-ERROR
+OPTED_IN
+OPTED_OUT
 ```
 
-Successful publish/status/token-refresh work marks the provider healthy. Transient network/provider/rate-limit failures mark it degraded. Authentication/permission failures mark it error. Rate-limit failures record `limitedUntil` from the scheduler retry time.
+Campaigns accept only explicitly `OPTED_IN` recipients. Opt-in requires a recorded consent source.
 
-### Meta webhooks
+### Approved templates
+
+Templates are synchronized server-side from the configured WhatsApp Business Account. Campaign creation requires a locally stored provider template whose current status is `APPROVED`.
+
+### Campaign execution
+
+Each campaign creates one `WHATSAPP_CAMPAIGN` scheduler job. Recipient and message state is persisted independently.
+
+Message intent is stored before the provider call. Explicit provider rate limits may retry. Ambiguous network/crash delivery does **not** blindly resend; it is terminalized as `DELIVERY_UNCERTAIN` to prevent duplicate external messages.
+
+### Delivery webhooks
 
 ```text
-GET  /api/webhooks/meta
-POST /api/webhooks/meta
+GET  /api/webhooks/whatsapp
+POST /api/webhooks/whatsapp
 ```
 
-The GET route performs the Meta subscription challenge with `META_WEBHOOK_VERIFY_TOKEN`.
+The challenge uses `WHATSAPP_VERIFY_TOKEN`. POST signatures use `X-Hub-Signature-256` over the exact raw request bytes with `WHATSAPP_APP_SECRET`.
 
-POST verifies `X-Hub-Signature-256` against the exact raw body using HMAC-SHA256 with `META_WEBHOOK_APP_SECRET`. Only verified bodies are parsed/persisted.
-
-### TikTok webhooks
+Verified message states support monotonic progression such as:
 
 ```text
-POST /api/webhooks/tiktok
+SENT -> DELIVERED -> READ
 ```
 
-The `TikTok-Signature` is verified over:
+Failure callbacks record sanitized failure state. Duplicate/retried webhook deliveries use the V16 dedup/resume mechanism.
 
-```text
-<timestamp>.<raw request body>
-```
-
-using `TIKTOK_CLIENT_SECRET`. Deliveries outside the five-minute freshness window are rejected.
-
-Verified Content Posting events can synchronize `PUBLISHED` / `FAILED` state using TikTok `publish_id`. `authorization.removed` disconnects the matching TikTok account and clears encrypted credentials.
-
-### Duplicate delivery protection
-
-Verified raw request bytes are SHA-256 fingerprinted into a provider-scoped external event ID. A duplicate delivery is acknowledged without repeating side effects.
-
-### Operations API
-
-```text
-GET /api/operations
-```
-
-Returns sanitized:
-
-```text
-providers
-failedJobs
-attempts
-webhooks
-```
-
-Raw webhook payloads and provider credentials are not returned to the browser.
-
-See `docs/V16_OPERATIONS_CENTER.md` for the complete operational runbook.
+See `docs/V17_WHATSAPP_BUSINESS.md` for setup, safety behavior, APIs, and the live-provider verification gap.
 
 ## Media Uploads and Library
 
 `POST /api/media/uploads` supports JPEG, PNG, WebP, and MP4. Supported types are byte-signature checked rather than trusting MIME declaration alone.
 
-Uploaded media must be reachable by provider APIs when used for publishing. Media Library deletion refuses assets referenced by persisted post media. Storage can be local or S3-compatible.
+Uploaded media must be provider-reachable when used for publishing. Media Library deletion refuses assets referenced by persisted post media. Storage can be local or S3-compatible.
 
 See `docs/V12_MEDIA_STORAGE.md`.
 
 ## Database Backends
 
 ### JSON
-
-Default local-development mode:
 
 ```text
 DATABASE_DRIVER=json
@@ -370,22 +333,23 @@ DATA_FILE=./data/srocial.json
 
 ### PostgreSQL
 
-Production target:
-
 ```text
 DATABASE_DRIVER=postgres
 DATABASE_URL=postgres://user:password@host:5432/database
 ```
 
-Migrations are ordered, checksum-recorded, transaction-protected, and guarded by a PostgreSQL advisory lock. Historical migrations are immutable.
+Migrations are ordered, checksum-recorded, transaction-protected, and guarded by a PostgreSQL advisory lock. Historical migrations are immutable. Scheduler claims use `FOR UPDATE SKIP LOCKED` so multiple workers cannot claim the same due job.
 
-Scheduler claims use `FOR UPDATE SKIP LOCKED` so multiple workers cannot claim the same due job.
+Recent migrations:
 
-V16 migration `005_operations_center.sql` extends webhook metadata and creates `provider_status`.
+```text
+005_operations_center.sql
+006_whatsapp_business.sql
+```
 
 ## Data Model
 
-Core runtime records now include:
+Core runtime records include:
 
 ```text
 accounts
@@ -397,6 +361,11 @@ publication_attempts
 oauth_states
 webhook_events
 provider_status
+contacts
+whatsapp_templates
+campaigns
+campaign_recipients
+whatsapp_messages
 ```
 
 ## Verification
@@ -410,9 +379,9 @@ npm test
 find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-Coverage includes application authentication; PostgreSQL persistence/concurrency/migrations; media storage/lifecycle; Instagram token refresh; Facebook/Threads provider adapters; TikTok OAuth/refresh/Creator Info/Direct Post/status behavior; and V16 operations repository parity, Meta/TikTok signature verification, TikTok replay-age rejection, webhook deduplication, provider state synchronization, publication attempts, provider health/rate-limit telemetry, Operations API sanitization, and Operations UI wiring.
+Coverage includes authentication; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature verification, webhook deduplication and provider telemetry; and V17 contact consent, approved-template campaigns, JSON/PostgreSQL parity, scheduler execution isolation, recipient/message states, rate-limit retry, ambiguous-delivery fail-closed behavior, WhatsApp webhook verification/deduplication/state progression, protected API wiring, and browser-module wiring.
 
-Real provider verification gaps remain in `PROBLEMS.md`. Automated CI cannot substitute for approved provider applications and public HTTPS callbacks.
+Real provider verification gaps remain in `PROBLEMS.md`. Automated CI cannot substitute for approved provider applications, live credentials, real sender identities, or public HTTPS callbacks.
 
 ## Repository Structure
 
@@ -429,6 +398,7 @@ srocial/
 |  |- db/
 |  |- http/
 |  |- media/
+|  |- messaging/whatsapp/
 |  |- operations/
 |  |- platforms/
 |  |- routes/
@@ -441,20 +411,23 @@ srocial/
 |  |- V13_INSTAGRAM_TOKEN_REFRESH.md
 |  |- V14_META_PROVIDERS.md
 |  |- V15_TIKTOK_PROVIDER.md
-|  `- V16_OPERATIONS_CENTER.md
+|  |- V16_OPERATIONS_CENTER.md
+|  `- V17_WHATSAPP_BUSINESS.md
 |- .env.example
 `- package.json
 ```
 
 ## Development Direction
 
-With V16 implemented, the source roadmap advances to:
+With V17 implemented, the next unresolved source-defined product work is:
 
-1. **WhatsApp Business subsystem** — contacts, consent/eligibility, approved templates, campaigns, recipient-level message state, delivery/read/failure webhooks, and retries;
-2. **Calendar + queue lifecycle controls** — drafts, edit, cancel, retry, duplicate, bulk queue operations, and operational calendar views;
-3. **Analytics/reporting** — publishing/channel/post metrics after lifecycle controls produce stable operator workflows;
-4. **Browser end-to-end coverage** for critical operator flows, including Operations Center;
-5. if multi-user access becomes necessary, database-backed identities, roles, session revocation, and proxy-aware distributed rate limiting as a separate security project.
+1. **Calendar + Queue lifecycle controls** — month/week/day calendar, queue management, edit, cancel, retry, duplicate, drag/reschedule, filtering, and bulk actions;
+2. **Drafts and richer creation workflows** — autosave, reusable content templates, platform overrides, previews, reusable hashtag/media sets;
+3. **Analytics/reporting** — channel/post metrics after lifecycle controls produce stable operator workflows;
+4. **Browser end-to-end coverage** for critical operator flows including WhatsApp and Operations Center;
+5. **Full users/roles security milestone if required** — database-backed identities, RBAC, session revocation, trusted-proxy handling, and distributed rate limiting.
+
+The historical source roadmap placed full Users/Roles at V18, but the live repository already introduced application authentication earlier as V11 and still lacks the source's Calendar/Queue lifecycle feature set. Therefore the next implementation milestone should close that operational gap first; full multi-user/RBAC remains tracked under `SR-P006`.
 
 ## Development Rules
 

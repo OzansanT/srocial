@@ -1,0 +1,9 @@
+.whatsapp-panel { scroll-margin-top: 1rem; }
+.whatsapp-layout { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.whatsapp-column { display: grid; gap: .85rem; align-content: start; }
+.whatsapp-list { display: grid; gap: .65rem; }
+.whatsapp-row { display: grid; gap: .4rem; padding: .85rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface-subtle, var(--surface)); }
+.whatsapp-row__meta, .whatsapp-empty { color: var(--text-muted); font-size: .875rem; }
+.whatsapp-recipient-choice { display: inline-flex; align-items: center; gap: .45rem; font-size: .875rem; }
+.whatsapp-form { display: grid; gap: .75rem; }
+@media (max-width: 720px) { .whatsapp-layout { grid-template-columns: 1fr; } }

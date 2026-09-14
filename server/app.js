@@ -11,7 +11,22 @@ import { completeOAuthPayload, startOAuthPayload } from './routes/oauth.js';
 import { deleteMediaPayload, listMediaPayload } from './routes/media.js';
 import { getTikTokCreatorInfoPayload } from './routes/tiktok.js';
 import { getOperationsPayload } from './routes/operations.js';
-import { handleMetaChallenge, handleMetaWebhook, handleTikTokWebhook } from './routes/webhooks.js';
+import {
+  handleMetaChallenge,
+  handleMetaWebhook,
+  handleTikTokWebhook,
+  handleWhatsAppChallenge,
+  handleWhatsAppWebhook
+} from './routes/webhooks.js';
+import {
+  createWhatsAppCampaignPayload,
+  createWhatsAppContactPayload,
+  listWhatsAppCampaignsPayload,
+  listWhatsAppContactsPayload,
+  listWhatsAppTemplatesPayload,
+  setWhatsAppConsentPayload,
+  syncWhatsAppTemplatesPayload
+} from './routes/whatsapp.js';
 
 const CLIENT_ROOT = fileURLToPath(new URL('../client/', import.meta.url));
 const CONTENT_TYPES = Object.freeze({
@@ -116,6 +131,7 @@ function isPublicRoute(method, pathname) {
   if (normalizedMethod === 'POST' && pathname === '/api/auth/login') return true;
   if ((normalizedMethod === 'GET' || normalizedMethod === 'POST') && pathname === '/api/webhooks/meta') return true;
   if (normalizedMethod === 'POST' && pathname === '/api/webhooks/tiktok') return true;
+  if ((normalizedMethod === 'GET' || normalizedMethod === 'POST') && pathname === '/api/webhooks/whatsapp') return true;
   if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && PUBLIC_AUTH_ASSETS.has(pathname)) return true;
   if (normalizedMethod === 'GET' && /^\/api\/oauth\/[^/]+\/callback$/.test(pathname)) return true;
   if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && /^\/media\/[^/]+$/.test(pathname)) return true;
@@ -148,7 +164,8 @@ export function createRequestHandler({
   publicBaseUrl = 'http://127.0.0.1:3000',
   mediaStore = null,
   appAuth = null,
-  webhookConfig = {}
+  webhookConfig = {},
+  whatsappAdapter = null
 } = {}) {
   return async function requestHandler(request, response) {
     try {
@@ -189,23 +206,12 @@ export function createRequestHandler({
       if (request.method === 'POST' && url.pathname === '/api/webhooks/meta') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
         const rawBody = await readRawBody(request);
-        const result = await handleMetaWebhook({
-          repository,
-          rawBody,
-          signature: request.headers['x-hub-signature-256'],
-          appSecret: webhookConfig.metaAppSecret,
-          now: now()
-        });
+        const result = await handleMetaWebhook({ repository, rawBody, signature: request.headers['x-hub-signature-256'], appSecret: webhookConfig.metaAppSecret, now: now() });
         return sendJson(response, result.statusCode, result.payload);
       }
 
       if (request.method === 'GET' && url.pathname === '/api/webhooks/meta') {
-        const result = handleMetaChallenge({
-          mode: url.searchParams.get('hub.mode'),
-          verifyToken: url.searchParams.get('hub.verify_token'),
-          challenge: url.searchParams.get('hub.challenge'),
-          expectedToken: webhookConfig.metaVerifyToken
-        });
+        const result = handleMetaChallenge({ mode: url.searchParams.get('hub.mode'), verifyToken: url.searchParams.get('hub.verify_token'), challenge: url.searchParams.get('hub.challenge'), expectedToken: webhookConfig.metaVerifyToken });
         if (result.text != null) return sendText(response, result.statusCode, result.text);
         return sendJson(response, result.statusCode, result.payload);
       }
@@ -213,13 +219,20 @@ export function createRequestHandler({
       if (request.method === 'POST' && url.pathname === '/api/webhooks/tiktok') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
         const rawBody = await readRawBody(request);
-        const result = await handleTikTokWebhook({
-          repository,
-          rawBody,
-          signature: request.headers['tiktok-signature'],
-          clientSecret: webhookConfig.tiktokClientSecret,
-          now: now()
-        });
+        const result = await handleTikTokWebhook({ repository, rawBody, signature: request.headers['tiktok-signature'], clientSecret: webhookConfig.tiktokClientSecret, now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/webhooks/whatsapp') {
+        const result = handleWhatsAppChallenge({ mode: url.searchParams.get('hub.mode'), verifyToken: url.searchParams.get('hub.verify_token'), challenge: url.searchParams.get('hub.challenge'), expectedToken: webhookConfig.whatsappVerifyToken });
+        if (result.text != null) return sendText(response, result.statusCode, result.text);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/webhooks/whatsapp') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const rawBody = await readRawBody(request);
+        const result = await handleWhatsAppWebhook({ repository, rawBody, signature: request.headers['x-hub-signature-256'], appSecret: webhookConfig.whatsappAppSecret, now: now() });
         return sendJson(response, result.statusCode, result.payload);
       }
 
@@ -240,6 +253,43 @@ export function createRequestHandler({
       if (request.method === 'GET' && url.pathname === '/api/dashboard') return sendJson(response, 200, await getDashboardPayload(repository));
       if (request.method === 'GET' && url.pathname === '/api/operations') {
         const result = await getOperationsPayload(repository);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/whatsapp/contacts') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await listWhatsAppContactsPayload(repository);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      if (request.method === 'POST' && url.pathname === '/api/whatsapp/contacts') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await createWhatsAppContactPayload(repository, await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      const whatsappConsent = url.pathname.match(/^\/api\/whatsapp\/contacts\/([^/]+)\/consent$/);
+      if (request.method === 'POST' && whatsappConsent) {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await setWhatsAppConsentPayload(repository, decodeURIComponent(whatsappConsent[1]), await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      if (request.method === 'GET' && url.pathname === '/api/whatsapp/templates') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await listWhatsAppTemplatesPayload(repository);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      if (request.method === 'POST' && url.pathname === '/api/whatsapp/templates/sync') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await syncWhatsAppTemplatesPayload(repository, whatsappAdapter, { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      if (request.method === 'GET' && url.pathname === '/api/whatsapp/campaigns') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await listWhatsAppCampaignsPayload(repository);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      if (request.method === 'POST' && url.pathname === '/api/whatsapp/campaigns') {
+        if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await createWhatsAppCampaignPayload(repository, await readJsonBody(request), { now: now() });
         return sendJson(response, result.statusCode, result.payload);
       }
 

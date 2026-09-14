@@ -4,20 +4,37 @@ import { executeJob } from './job-dispatcher.js';
 export async function runSchedulerTick({
   repository,
   registry,
+  messagingRegistry = new Map(),
   oauthRegistry,
   tokenCipher,
+  allowedJobTypes = null,
   now = new Date(),
   workerId,
   limit = 10,
   lockTimeoutMs = 120_000,
   retryPolicy
 }) {
-  const claimedJobs = await repository.claimDueJobs({ now, workerId, limit, lockTimeoutMs });
+  const claimedJobs = await repository.claimDueJobs({
+    now,
+    workerId,
+    limit,
+    lockTimeoutMs,
+    types: allowedJobTypes
+  });
   const results = [];
 
   for (const job of claimedJobs) {
     try {
-      results.push(await executeJob({ job, repository, registry, oauthRegistry, tokenCipher, now, retryPolicy }));
+      results.push(await executeJob({
+        job,
+        repository,
+        registry,
+        messagingRegistry,
+        oauthRegistry,
+        tokenCipher,
+        now,
+        retryPolicy
+      }));
     } catch (error) {
       await repository.updateJob(job.id, {
         state: JOB_STATES.FAILED,

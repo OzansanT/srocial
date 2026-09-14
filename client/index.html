@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/css/pages/accounts.css">
   <link rel="stylesheet" href="/css/pages/media-library.css">
   <link rel="stylesheet" href="/css/pages/operations.css">
+  <link rel="stylesheet" href="/css/pages/whatsapp.css">
 </head>
 <body>
   <div class="app-shell">
@@ -30,7 +31,7 @@
         <a class="sidebar__link" href="#create">Create</a>
         <a class="sidebar__link" href="#media">Media</a>
         <a class="sidebar__link" href="#accounts">Accounts</a>
-        <a class="sidebar__link" href="#contacts">Contacts</a>
+        <a class="sidebar__link" href="#whatsapp">WhatsApp</a>
         <a class="sidebar__link" href="#queue">Queue</a>
         <a class="sidebar__link" href="#operations">Operations</a>
       </nav>
@@ -138,6 +139,45 @@
         </div>
         <p id="media-library-feedback" class="form-feedback" aria-live="polite"></p>
         <div id="media-library-list" class="media-library__grid" aria-live="polite"></div>
+      </section>
+
+      <section class="card panel whatsapp-panel" id="whatsapp" aria-labelledby="whatsapp-title">
+        <div class="panel__header">
+          <div><p class="eyebrow">Business messaging</p><h2 id="whatsapp-title">WhatsApp Business</h2></div>
+          <button class="button button--secondary" id="sync-whatsapp-templates" type="button">Sync templates</button>
+        </div>
+        <p id="whatsapp-feedback" class="form-feedback" aria-live="polite"></p>
+        <div class="whatsapp-layout">
+          <section class="whatsapp-column" aria-labelledby="whatsapp-contacts-title">
+            <h3 id="whatsapp-contacts-title">Contacts &amp; consent</h3>
+            <form id="whatsapp-contact-form" class="whatsapp-form">
+              <label class="field"><span>Phone (E.164)</span><input name="phoneNumber" type="tel" required placeholder="+905551112233"></label>
+              <label class="field"><span>Name</span><input name="displayName" type="text" maxlength="200"></label>
+              <label class="field"><span>Consent</span><select name="consentStatus"><option value="UNKNOWN">Unknown</option><option value="OPTED_IN">Opted in</option><option value="OPTED_OUT">Opted out</option></select></label>
+              <label class="field"><span>Consent source</span><input name="consentSource" type="text" maxlength="200" placeholder="checkout, web form, dashboard"></label>
+              <button class="button button--primary" type="submit">Add contact</button>
+            </form>
+            <div id="whatsapp-contact-list" class="whatsapp-list" aria-live="polite"></div>
+          </section>
+
+          <section class="whatsapp-column" aria-labelledby="whatsapp-templates-title">
+            <h3 id="whatsapp-templates-title">Templates</h3>
+            <p class="whatsapp-empty">Only approved templates are eligible for scheduled campaigns.</p>
+            <div id="whatsapp-template-list" class="whatsapp-list" aria-live="polite"></div>
+          </section>
+
+          <section class="whatsapp-column" aria-labelledby="whatsapp-campaigns-title">
+            <h3 id="whatsapp-campaigns-title">Campaigns</h3>
+            <form id="whatsapp-campaign-form" class="whatsapp-form">
+              <label class="field"><span>Campaign name</span><input name="name" type="text" maxlength="200" required></label>
+              <label class="field"><span>Approved template</span><select id="whatsapp-campaign-template" name="templateId" required><option value="">Select approved template</option></select></label>
+              <label class="field"><span>Send time</span><input name="scheduledAt" type="datetime-local" required></label>
+              <small>Select opted-in recipients from the Contacts list.</small>
+              <button class="button button--primary" type="submit">Schedule campaign</button>
+            </form>
+            <div id="whatsapp-campaign-list" class="whatsapp-list" aria-live="polite"></div>
+          </section>
+        </div>
       </section>
 
       <section class="card panel scheduled-panel" id="queue">

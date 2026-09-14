@@ -1,13 +1,21 @@
-import { processMetaWebhook, processTikTokWebhook, parseWebhookJson } from '../webhooks/processor.js';
+import { processMetaWebhook, processTikTokWebhook, processWhatsAppWebhook, parseWebhookJson } from '../webhooks/processor.js';
 import { verifyMetaSignature, verifyTikTokSignature } from '../webhooks/signatures.js';
 
-export function handleMetaChallenge({ mode, verifyToken, challenge, expectedToken } = {}) {
+function handleMetaStyleChallenge({ mode, verifyToken, challenge, expectedToken } = {}) {
   const configured = String(expectedToken ?? '');
   if (!configured) return { statusCode:503, payload:{ error:'webhook_not_configured' } };
   if (String(mode ?? '') !== 'subscribe' || String(verifyToken ?? '') !== configured || !String(challenge ?? '')) {
     return { statusCode:403, payload:{ error:'webhook_verification_failed' } };
   }
   return { statusCode:200, text:String(challenge) };
+}
+
+export function handleMetaChallenge(input = {}) {
+  return handleMetaStyleChallenge(input);
+}
+
+export function handleWhatsAppChallenge(input = {}) {
+  return handleMetaStyleChallenge(input);
 }
 
 export async function handleMetaWebhook({ repository, rawBody, signature, appSecret, now = new Date() } = {}) {
@@ -29,4 +37,13 @@ export async function handleTikTokWebhook({ repository, rawBody, signature, clie
     statusCode:200,
     payload:{ received:true, duplicate:result.duplicate === true, ...(result.errorCode ? { error:result.errorCode.toLowerCase() } : {}) }
   };
+}
+
+export async function handleWhatsAppWebhook({ repository, rawBody, signature, appSecret, now = new Date() } = {}) {
+  if (!String(appSecret ?? '')) return { statusCode:503, payload:{ error:'webhook_not_configured' } };
+  if (!verifyMetaSignature({ rawBody, signature, secret:appSecret })) return { statusCode:401, payload:{ error:'invalid_signature' } };
+  const payload = parseWebhookJson(rawBody);
+  if (!payload) return { statusCode:400, payload:{ error:'invalid_json' } };
+  const result = await processWhatsAppWebhook({ repository, rawBody, payload, now });
+  return { statusCode:200, payload:{ received:true, duplicate:result.duplicate === true } };
 }
