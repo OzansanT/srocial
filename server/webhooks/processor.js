@@ -30,10 +30,13 @@ function tiktokFailureCode(reason) {
 }
 
 async function beginEvent(repository, record) {
-  const duplicate = await repository.getWebhookEventByExternalId(record.provider, record.externalEventId);
-  if (duplicate) return { duplicate: true, event: duplicate };
+  const existing = await repository.getWebhookEventByExternalId(record.provider, record.externalEventId);
+  if (existing) {
+    if (existing.processingState === 'PROCESSED') return { duplicate: true, event: existing, resumed: false };
+    return { duplicate: false, event: existing, resumed: true };
+  }
   const event = await repository.createWebhookEvent(record);
-  return { duplicate: false, event };
+  return { duplicate: false, event, resumed: false };
 }
 
 async function finishEvent(repository, event, now, patch = {}) {
