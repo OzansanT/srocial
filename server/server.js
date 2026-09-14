@@ -9,6 +9,7 @@ import { registerFacebookProvider } from './platforms/facebook/index.js';
 import { registerInstagramProvider } from './platforms/instagram/index.js';
 import { createPlatformRegistry } from './platforms/registry.js';
 import { registerThreadsProvider } from './platforms/threads/index.js';
+import { registerTikTokProvider } from './platforms/tiktok/index.js';
 import { runSchedulerTick } from './scheduler/run-scheduler-tick.js';
 import { startMediaRetentionLoop } from './scheduler/start-media-retention-loop.js';
 import { startSchedulerLoop } from './scheduler/start-scheduler-loop.js';
@@ -30,6 +31,7 @@ await mediaStore.initialize();
 registerInstagramProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
 registerFacebookProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
 registerThreadsProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
+registerTikTokProvider({ env: process.env, oauthRegistry: oauthProviderRegistry, platformRegistry, repository, cipher: tokenCipher });
 
 const schedulerLoop = startSchedulerLoop({
   enabled: process.env.SCHEDULER_ENABLED,
@@ -51,7 +53,7 @@ const mediaRetentionLoop = startMediaRetentionLoop({
   maxDeletes: process.env.MEDIA_ORPHAN_CLEANUP_MAX_DELETES
 });
 
-const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, tokenCipher, publicBaseUrl, mediaStore, appAuth }));
+const server = createServer(createRequestHandler({ repository, oauthProviderRegistry, platformRegistry, tokenCipher, publicBaseUrl, mediaStore, appAuth }));
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 
 let shuttingDown = false;
