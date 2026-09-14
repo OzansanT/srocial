@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { JOB_STATES } from '../scheduler/job-states.js';
+import { createJsonComposer } from './json-composer.js';
 import { applyJsonPostLifecycleMutations, buildJsonPostOperations } from './json-post-lifecycle.js';
 
 function clone(value) { return structuredClone(value); }
@@ -9,7 +10,8 @@ function emptyData() {
   return {
     posts: [], publications: [], jobs: [], accounts: [], oauthStates: [], media: [],
     publicationAttempts: [], webhookEvents: [], providerStatuses: [],
-    contacts: [], whatsappTemplates: [], campaigns: [], campaignRecipients: [], whatsappMessages: []
+    contacts: [], whatsappTemplates: [], campaigns: [], campaignRecipients: [], whatsappMessages: [],
+    composerDrafts: [], captionTemplates: [], hashtagCollections: [], destinationGroups: []
   };
 }
 
@@ -76,6 +78,13 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
     return clone(read());
   }
 
+  const composer = createJsonComposer({
+    mutate,
+    stableRead,
+    enqueueMutation,
+    getData: () => data
+  });
+
   return {
     async initialize() {
       try {
@@ -94,7 +103,11 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
           whatsappTemplates: Array.isArray(parsed.whatsappTemplates) ? parsed.whatsappTemplates : [],
           campaigns: Array.isArray(parsed.campaigns) ? parsed.campaigns : [],
           campaignRecipients: Array.isArray(parsed.campaignRecipients) ? parsed.campaignRecipients : [],
-          whatsappMessages: Array.isArray(parsed.whatsappMessages) ? parsed.whatsappMessages : []
+          whatsappMessages: Array.isArray(parsed.whatsappMessages) ? parsed.whatsappMessages : [],
+          composerDrafts: Array.isArray(parsed.composerDrafts) ? parsed.composerDrafts : [],
+          captionTemplates: Array.isArray(parsed.captionTemplates) ? parsed.captionTemplates : [],
+          hashtagCollections: Array.isArray(parsed.hashtagCollections) ? parsed.hashtagCollections : [],
+          destinationGroups: Array.isArray(parsed.destinationGroups) ? parsed.destinationGroups : []
         };
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
@@ -104,6 +117,7 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
     },
     async healthCheck() { return { ok: true, backend: 'json' }; },
     async close() {},
+    ...composer,
     createAccount(record) { return mutate('accounts', record); },
     updateAccount(id, patch) { return update('accounts', id, patch); },
     getAccount(id) { return stableRead(() => data.accounts.find((item) => item.id === id) ?? null); },
