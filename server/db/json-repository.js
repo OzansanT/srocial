@@ -12,21 +12,41 @@ function emptyData() {
   };
 }
 
-export function createJsonRepository({ filePath }) {
+export function createJsonRepository({ filePath, faultInjector = null }) {
   let data = emptyData();
   let writeChain = Promise.resolve();
 
-  async function persist() {
+  async function persistSnapshot(snapshot) {
     const temporaryPath = `${filePath}.tmp`;
     await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(temporaryPath, JSON.stringify(data, null, 2), 'utf8');
+    await writeFile(temporaryPath, JSON.stringify(snapshot, null, 2), 'utf8');
     await rename(temporaryPath, filePath);
+  }
+
+  async function persist() {
+    await persistSnapshot(data);
+  }
+
+  async function checkpoint(name, context = {}) {
+    if (typeof faultInjector === 'function') await faultInjector(name, clone(context));
   }
 
   function enqueueMutation(operation) {
     const result = writeChain.then(async () => {
       const value = await operation();
       await persist();
+      return clone(value);
+    });
+    writeChain = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  function enqueueAtomicMutation(operation) {
+    const result = writeChain.then(async () => {
+      const candidate = clone(data);
+      const value = await operation(candidate);
+      await persistSnapshot(candidate);
+      data = candidate;
       return clone(value);
     });
     writeChain = result.then(() => undefined, () => undefined);
@@ -110,6 +130,63 @@ export function createJsonRepository({ filePath }) {
     createPost(record) { return mutate('posts', record); },
     createPublication(record) { return mutate('publications', record); },
     createJob(record) { return mutate('jobs', record); },
+    createSocialScheduleGraph({ post, media = [], publicationPlans = [] } = {}) {
+      return enqueueAtomicMutation(async (candidate) => {
+        const createdPost = { ...clone(post), id: randomUUID() };
+        candidate.posts.push(createdPost);
+        await checkpoint('social:after-post', { postId: createdPost.id });
+
+        const createdMedia = [];
+        for (const record of media) {
+          const item = { ...clone(record), id: randomUUID(), postId: createdPost.id };
+          candidate.media.push(item);
+          createdMedia.push(item);
+          await checkpoint('social:after-media', { postId: createdPost.id, mediaId: item.id });
+        }
+
+        const publications = [];
+        const jobs = [];
+        for (const plan of publicationPlans) {
+          const publication = { ...clone(plan.publication), id: randomUUID(), postId: createdPost.id };
+          candidate.publications.push(publication);
+          publications.push(publication);
+          await checkpoint('social:after-publication', { postId: createdPost.id, publicationId: publication.id });
+
+          const job = {
+            ...clone(plan.job),
+            id: randomUUID(),
+            publicationId: publication.id,
+            campaignId: null,
+            accountId: plan.job?.accountId ?? publication.accountId ?? null
+          };
+          candidate.jobs.push(job);
+          jobs.push(job);
+          await checkpoint('social:after-job', { publicationId: publication.id, jobId: job.id });
+        }
+
+        return { post: createdPost, media: createdMedia, publications, jobs };
+      });
+    },
+    createWhatsAppCampaignGraph({ campaign, recipients = [], job } = {}) {
+      return enqueueAtomicMutation(async (candidate) => {
+        const createdCampaign = { ...clone(campaign), id: randomUUID() };
+        candidate.campaigns.push(createdCampaign);
+        await checkpoint('whatsapp:after-campaign', { campaignId: createdCampaign.id });
+
+        const createdRecipients = [];
+        for (const record of recipients) {
+          const item = { ...clone(record), id: randomUUID(), campaignId: createdCampaign.id };
+          candidate.campaignRecipients.push(item);
+          createdRecipients.push(item);
+          await checkpoint('whatsapp:after-recipient', { campaignId: createdCampaign.id, recipientId: item.id });
+        }
+
+        const createdJob = { ...clone(job), id: randomUUID(), campaignId: createdCampaign.id, publicationId: null };
+        candidate.jobs.push(createdJob);
+        await checkpoint('whatsapp:after-job', { campaignId: createdCampaign.id, jobId: createdJob.id });
+        return { campaign: createdCampaign, recipients: createdRecipients, job: createdJob };
+      });
+    },
     createPublicationAttempt(record) { return mutate('publicationAttempts', record); },
     createWebhookEvent(record) { return mutate('webhookEvents', record); },
     updatePublication(id, patch) { return update('publications', id, patch); },
