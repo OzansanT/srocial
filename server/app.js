@@ -5,6 +5,7 @@ import { readJsonBody, RequestBodyError } from './http/read-json-body.js';
 import { readRawBody } from './http/read-raw-body.js';
 import { getHealthPayload } from './routes/health.js';
 import { getDashboardPayload } from './routes/dashboard.js';
+import { getAnalyticsPayload, refreshAnalyticsPayload, refreshPublicationAnalyticsPayload } from './routes/analytics.js';
 import { routeComposerWorkflowRequest } from './routes/composer-workflows.js';
 import {
   bulkCancelPostsPayload,
@@ -37,6 +38,7 @@ import {
   setWhatsAppConsentPayload,
   syncWhatsAppTemplatesPayload
 } from './routes/whatsapp.js';
+import { createAnalyticsService } from './services/analytics-service.js';
 
 const CLIENT_ROOT = fileURLToPath(new URL('../client/', import.meta.url));
 const CONTENT_TYPES = Object.freeze({
@@ -170,6 +172,7 @@ export function createRequestHandler({
   now = () => new Date(),
   oauthProviderRegistry = new Map(),
   platformRegistry = new Map(),
+  analyticsRegistry = new Map(),
   tokenCipher = null,
   publicBaseUrl = 'http://127.0.0.1:3000',
   mediaStore = null,
@@ -177,6 +180,7 @@ export function createRequestHandler({
   webhookConfig = {},
   whatsappAdapter = null
 } = {}) {
+  const analyticsService = repository ? createAnalyticsService({ repository, analyticsRegistry }) : null;
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -263,6 +267,28 @@ export function createRequestHandler({
       if (request.method === 'GET' && url.pathname === '/api/dashboard') return sendJson(response, 200, await getDashboardPayload(repository));
       if (request.method === 'GET' && url.pathname === '/api/operations') {
         const result = await getOperationsPayload(repository);
+        return sendJson(response, result.statusCode, result.payload);
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/analytics') {
+        if (!analyticsService) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await getAnalyticsPayload(analyticsService, {
+          platform: url.searchParams.get('platform'),
+          accountId: url.searchParams.get('accountId'),
+          from: url.searchParams.get('from'),
+          until: url.searchParams.get('until')
+        });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      if (request.method === 'POST' && url.pathname === '/api/analytics/refresh') {
+        if (!analyticsService) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await refreshAnalyticsPayload(analyticsService, await readJsonBody(request), { now: now() });
+        return sendJson(response, result.statusCode, result.payload);
+      }
+      const analyticsPublication = url.pathname.match(/^\/api\/analytics\/publications\/([^/]+)\/refresh$/);
+      if (request.method === 'POST' && analyticsPublication) {
+        if (!analyticsService) return sendJson(response, 503, { error: 'repository_unavailable' });
+        const result = await refreshPublicationAnalyticsPayload(analyticsService, decodeURIComponent(analyticsPublication[1]), { now: now() });
         return sendJson(response, result.statusCode, result.payload);
       }
 
