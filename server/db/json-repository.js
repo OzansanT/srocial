@@ -7,7 +7,8 @@ function clone(value) { return structuredClone(value); }
 function emptyData() {
   return {
     posts: [], publications: [], jobs: [], accounts: [], oauthStates: [], media: [],
-    publicationAttempts: [], webhookEvents: [], providerStatuses: []
+    publicationAttempts: [], webhookEvents: [], providerStatuses: [],
+    contacts: [], whatsappTemplates: [], campaigns: [], campaignRecipients: [], whatsappMessages: []
   };
 }
 
@@ -67,7 +68,12 @@ export function createJsonRepository({ filePath }) {
           media: Array.isArray(parsed.media) ? parsed.media : [],
           publicationAttempts: Array.isArray(parsed.publicationAttempts) ? parsed.publicationAttempts : [],
           webhookEvents: Array.isArray(parsed.webhookEvents) ? parsed.webhookEvents : [],
-          providerStatuses: Array.isArray(parsed.providerStatuses) ? parsed.providerStatuses : []
+          providerStatuses: Array.isArray(parsed.providerStatuses) ? parsed.providerStatuses : [],
+          contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
+          whatsappTemplates: Array.isArray(parsed.whatsappTemplates) ? parsed.whatsappTemplates : [],
+          campaigns: Array.isArray(parsed.campaigns) ? parsed.campaigns : [],
+          campaignRecipients: Array.isArray(parsed.campaignRecipients) ? parsed.campaignRecipients : [],
+          whatsappMessages: Array.isArray(parsed.whatsappMessages) ? parsed.whatsappMessages : []
         };
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
@@ -144,6 +150,56 @@ export function createJsonRepository({ filePath }) {
     },
     listProviderStatuses() {
       return stableRead(() => [...data.providerStatuses].sort((a, b) => String(a.provider).localeCompare(String(b.provider))));
+    },
+    createContact(record) { return mutate('contacts', record); },
+    updateContact(id, patch) { return update('contacts', id, patch); },
+    getContact(id) { return stableRead(() => data.contacts.find((item) => item.id === id) ?? null); },
+    listContacts() { return stableRead(() => [...data.contacts].sort((a, b) => String(a.phoneNumber).localeCompare(String(b.phoneNumber)))); },
+    upsertWhatsAppTemplate(record) {
+      return enqueueMutation(() => {
+        const providerTemplateId = record.providerTemplateId ?? null;
+        let item = providerTemplateId
+          ? data.whatsappTemplates.find((candidate) => candidate.providerTemplateId === providerTemplateId)
+          : null;
+        if (!item) {
+          item = { id: randomUUID(), ...clone(record) };
+          data.whatsappTemplates.push(item);
+        } else {
+          const createdAt = item.createdAt;
+          Object.assign(item, clone(record), { id: item.id, createdAt });
+        }
+        return item;
+      });
+    },
+    getWhatsAppTemplate(id) { return stableRead(() => data.whatsappTemplates.find((item) => item.id === id) ?? null); },
+    listWhatsAppTemplates() {
+      return stableRead(() => [...data.whatsappTemplates]
+        .sort((a, b) => `${a.name ?? ''}:${a.language ?? ''}`.localeCompare(`${b.name ?? ''}:${b.language ?? ''}`)));
+    },
+    createCampaign(record) { return mutate('campaigns', record); },
+    updateCampaign(id, patch) { return update('campaigns', id, patch); },
+    getCampaign(id) { return stableRead(() => data.campaigns.find((item) => item.id === id) ?? null); },
+    listCampaigns() { return stableRead(() => [...data.campaigns].sort((a, b) => Date.parse(a.scheduledAt ?? '') - Date.parse(b.scheduledAt ?? ''))); },
+    createCampaignRecipient(record) { return mutate('campaignRecipients', record); },
+    updateCampaignRecipient(id, patch) { return update('campaignRecipients', id, patch); },
+    getCampaignRecipient(id) { return stableRead(() => data.campaignRecipients.find((item) => item.id === id) ?? null); },
+    listCampaignRecipients(campaignId) {
+      return stableRead(() => data.campaignRecipients.filter((item) => item.campaignId === campaignId));
+    },
+    createWhatsAppMessage(record) { return mutate('whatsappMessages', record); },
+    updateWhatsAppMessage(id, patch) { return update('whatsappMessages', id, patch); },
+    findWhatsAppMessageByProviderId(providerMessageId) {
+      return stableRead(() => data.whatsappMessages.find((item) => item.providerMessageId === providerMessageId) ?? null);
+    },
+    findLatestWhatsAppMessageForRecipient(campaignRecipientId) {
+      return stableRead(() => [...data.whatsappMessages]
+        .filter((item) => item.campaignRecipientId === campaignRecipientId)
+        .sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''))[0] ?? null);
+    },
+    listWhatsAppMessages({ campaignId = null } = {}) {
+      return stableRead(() => data.whatsappMessages
+        .filter((item) => !campaignId || item.campaignId === campaignId)
+        .sort((a, b) => Date.parse(a.createdAt ?? '') - Date.parse(b.createdAt ?? '')));
     },
     async claimDueJobs({ now = new Date(), workerId, limit = 10, lockTimeoutMs = 120000 } = {}) {
       if (!String(workerId ?? '').trim()) throw new Error('workerId is required');
