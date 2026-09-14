@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { createPostgresOperations } from './postgres-operations.js';
+import { createPostgresWhatsApp } from './postgres-whatsapp.js';
 
 const { Pool } = pg;
 
@@ -13,7 +14,12 @@ const REQUIRED_TABLES = Object.freeze([
   'scheduler_jobs',
   'publication_attempts',
   'webhook_events',
-  'provider_status'
+  'provider_status',
+  'contacts',
+  'whatsapp_templates',
+  'campaigns',
+  'campaign_recipients',
+  'whatsapp_messages'
 ]);
 
 const ACCOUNT_UPDATE_COLUMNS = Object.freeze({
@@ -197,9 +203,11 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
   const database = pool ?? new Pool({ connectionString: url });
   const ownsPool = !pool;
   const operations = createPostgresOperations(database, { mapPublication });
+  const whatsapp = createPostgresWhatsApp(database);
 
   return {
     ...operations,
+    ...whatsapp,
     async initialize() {
       const result = await database.query(
         'SELECT table_name, to_regclass(table_name) AS regclass FROM unnest($1::text[]) AS required(table_name)',
