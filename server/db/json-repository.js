@@ -201,8 +201,10 @@ export function createJsonRepository({ filePath }) {
         .filter((item) => !campaignId || item.campaignId === campaignId)
         .sort((a, b) => Date.parse(a.createdAt ?? '') - Date.parse(b.createdAt ?? '')));
     },
-    async claimDueJobs({ now = new Date(), workerId, limit = 10, lockTimeoutMs = 120000 } = {}) {
+    async claimDueJobs({ now = new Date(), workerId, limit = 10, lockTimeoutMs = 120000, types = null } = {}) {
       if (!String(workerId ?? '').trim()) throw new Error('workerId is required');
+      const typeSet = Array.isArray(types) ? new Set(types.map((item) => String(item ?? '').trim()).filter(Boolean)) : null;
+      if (Array.isArray(types) && typeSet.size === 0) return [];
       const nowMs = now.getTime();
       const staleBefore = nowMs - Math.max(0, Number(lockTimeoutMs) || 0);
       const maxJobs = Math.max(0, Number.parseInt(limit, 10) || 0);
@@ -211,6 +213,7 @@ export function createJsonRepository({ filePath }) {
       return enqueueMutation(() => {
         const eligible = data.jobs
           .filter((job) => {
+            if (typeSet && !typeSet.has(job.type)) return false;
             const scheduledMs = Date.parse(job.scheduledAt);
             if (!Number.isFinite(scheduledMs) || scheduledMs > nowMs) return false;
             if (job.state === JOB_STATES.SCHEDULED || job.state === JOB_STATES.RETRYING) return true;
