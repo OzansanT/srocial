@@ -4,11 +4,11 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, lifecy
 
 Instagram, Facebook Pages, Threads, and TikTok share the social publishing runtime. WhatsApp Business is intentionally a separate contacts/templates/campaign subsystem that reuses the same repository, scheduler infrastructure, verified-webhook layer, and Operations Center.
 
-## Current Status — V18
+## Current Status — V19
 
 The runnable foundation now includes:
 
-- vanilla HTML/CSS/JavaScript dashboard, Accounts, Media Library, composer, Operations Center, WhatsApp operator surface, **Queue**, and **Calendar**;
+- vanilla HTML/CSS/JavaScript dashboard, Accounts, Media Library, composer, **Draft workspace**, Operations Center, WhatsApp operator surface, **Queue**, and **Calendar**;
 - provider-neutral OAuth/account infrastructure with encrypted credentials;
 - Instagram professional-account OAuth plus image/Reel publishing and status flows;
 - Facebook Pages OAuth plus deterministic Page selection and text/image/Reel publishing;
@@ -26,7 +26,11 @@ The runnable foundation now includes:
 - **drag-to-reschedule with browser-local time-of-day preservation**;
 - **operational Queue filters by platform/account/state**;
 - **state-safe edit, reschedule, cancel, duplicate, retry, bulk cancel, and bulk reschedule actions**;
-- protected Operations, WhatsApp, and post-lifecycle management APIs plus browser UI;
+- **server-persisted drafts with delayed autosave, recovery, optimistic revisions, and stale-write conflict protection**;
+- **reusable caption templates, hashtag collections, and saved destination groups**;
+- **per-platform caption/media overrides persisted on publications and resolved by provider adapters at execution time**;
+- **live effective-content previews, platform character counts, and server-side pre-publish compatibility reports**;
+- protected Operations, WhatsApp, post-lifecycle, and composer-workflow management APIs plus browser UI;
 - GitHub Actions coverage against PostgreSQL 17.
 
 Safe execution defaults remain:
@@ -37,16 +41,16 @@ ALLOW_REAL_PUBLISH=false
 ALLOW_REAL_WHATSAPP=false
 ```
 
-The scheduler starts only when `SCHEDULER_ENABLED=true` and at least one execution gate is explicitly enabled. Social jobs and WhatsApp campaign jobs are claimed independently, so enabling WhatsApp cannot trigger social publishing and vice versa.
+The scheduler starts only when `SCHEDULER_ENABLED=true` and at least one execution gate is explicitly enabled. Social jobs and WhatsApp campaign jobs are claimed independently, so enabling WhatsApp cannot trigger social publishing and vice versa. Draft/resource/compatibility writes never enqueue scheduler work.
 
 ## Supported Channels
 
 | Channel | Current state |
 | --- | --- |
-| Instagram | account management + OAuth + long-lived token refresh + image/Reel publish/status adapter |
-| Facebook Pages | account management + OAuth + Page-token resolution + text/image/Reel publish/status adapter |
-| Threads | account management + OAuth + long-lived token refresh + text/image/video publish/status adapter |
-| TikTok | account management + OAuth + rotating token refresh + Creator Info + privacy-aware photo/video Direct Post + status adapter |
+| Instagram | account management + OAuth + long-lived token refresh + image/Reel publish/status adapter + publication content overrides |
+| Facebook Pages | account management + OAuth + Page-token resolution + text/image/Reel publish/status adapter + publication content overrides |
+| Threads | account management + OAuth + long-lived token refresh + text/image/video publish/status adapter + publication content overrides |
+| TikTok | account management + OAuth + rotating token refresh + Creator Info + privacy-aware photo/video Direct Post + status adapter + publication content overrides |
 | WhatsApp Business | contacts + consent + approved templates + scheduled campaigns + recipient/message states + signed delivery webhooks |
 
 ## Architecture
@@ -58,6 +62,9 @@ Browser
   +--> Accounts / OAuth
   +--> Media Library
   +--> Social Composer
+  |     +--> Drafts / autosave
+  |     +--> reusable templates / hashtags / destinations
+  |     +--> per-platform overrides / previews / compatibility
   +--> Queue / Calendar lifecycle controls
   +--> WhatsApp Contacts / Templates / Campaigns
   +--> Operations Center
@@ -65,6 +72,8 @@ Browser
   v
 Node HTTP application
   |
+  +--> Composer Workflow Service
+  +--> Compatibility Service
   +--> Social Post Service
   +--> Post Lifecycle Service
   +--> WhatsApp Campaign Services
@@ -74,9 +83,10 @@ Node HTTP application
   v
 Repository (JSON | PostgreSQL)
   |
+  +--> composer_drafts / reusable composer resources
   +--> atomic social scheduling graph
   +--> atomic lifecycle mutation units
-  +--> posts / media / publications
+  +--> posts / media / publications (+ content overrides)
   +--> scheduler_jobs
   +--> publication_attempts
   +--> webhook_events / provider_status
@@ -92,7 +102,7 @@ Repository (JSON | PostgreSQL)
  Provider adapters   WhatsApp adapter
 ```
 
-Provider-specific behavior remains inside provider/messaging modules. SQL stays under `server/db/`. Calendar and Queue are operator views over the existing social records rather than a parallel scheduler or data model.
+Provider-specific behavior remains inside provider/messaging modules. SQL stays under `server/db/`. Drafts and reusable resources are management data and do not form a second scheduler. Calendar and Queue remain operator views over the existing social records.
 
 ## Technology
 
@@ -225,6 +235,22 @@ POST   /api/publications/:id/retry
 POST   /api/posts/bulk/cancel
 POST   /api/posts/bulk/reschedule
 
+GET    /api/composer/drafts
+POST   /api/composer/drafts
+GET    /api/composer/drafts/:id
+PATCH  /api/composer/drafts/:id
+DELETE /api/composer/drafts/:id
+GET    /api/composer/caption-templates
+POST   /api/composer/caption-templates
+DELETE /api/composer/caption-templates/:id
+GET    /api/composer/hashtag-collections
+POST   /api/composer/hashtag-collections
+DELETE /api/composer/hashtag-collections/:id
+GET    /api/composer/destination-groups
+POST   /api/composer/destination-groups
+DELETE /api/composer/destination-groups/:id
+POST   /api/composer/compatibility
+
 GET    /api/accounts
 GET    /api/accounts/:id/tiktok/creator-info
 POST   /api/accounts/:id/disconnect
@@ -261,7 +287,14 @@ Content-Type: application/json
   "destinations": [
     {
       "platform": "instagram",
-      "accountId": "connected-account-id"
+      "accountId": "connected-account-id",
+      "captionOverride": "Instagram-specific caption",
+      "mediaOverride": [
+        {
+          "type": "image",
+          "url": "https://cdn.example.com/instagram.jpg"
+        }
+      ]
     }
   ],
   "media": [
@@ -274,11 +307,50 @@ Content-Type: application/json
 }
 ```
 
-Every explicit account must exist, be `CONNECTED`, and match the selected platform. Provider-specific choices are stored on the publication rather than the generic post record.
+Every explicit account must exist, be `CONNECTED`, and match the selected platform. Provider-specific choices and V19 content overrides are stored on the publication rather than the generic post record.
 
-Social scheduling now persists the post, media, publications, and executable scheduler jobs as one all-or-nothing repository operation. PostgreSQL uses a database transaction; the JSON backend persists an isolated candidate snapshot before publishing it as active state.
+A `null` content override inherits the master post content. An explicit empty media override (`[]`) means no media for that publication and remains distinct from inheritance. Final schedule creation validates the effective caption/media for every destination.
+
+Social scheduling persists the post, master media, publications, and executable scheduler jobs as one all-or-nothing repository operation. PostgreSQL uses a database transaction; the JSON backend persists an isolated candidate snapshot before publishing it as active state.
 
 Legacy platform-only scheduling remains available for backward compatibility and is explicitly tracked under `SR-P007` because it can create unbound publications.
+
+## Drafts + Composer Workflows — V19
+
+V19 implements the source roadmap's draft and richer-composer block.
+
+### Drafts and autosave
+
+Drafts persist on the server in JSON/PostgreSQL rather than in browser-only storage. Drafts can contain incomplete composer state and never create scheduler jobs. The browser performs delayed autosave and provides an explicit Save now action.
+
+Draft updates use optimistic revisions. A stale tab/client receives `409 draft_revision_conflict` instead of overwriting a newer revision. After conflict, automatic writes stop until the saved version is reloaded.
+
+### Reusable content
+
+The composer can save and reuse:
+
+- caption templates;
+- normalized hashtag collections;
+- destination groups containing platform/account selections.
+
+These records are independent from posts and publications.
+
+### Platform-specific composition
+
+Each selected social destination can override:
+
+- caption;
+- media behavior: inherit, no media, or custom image/video.
+
+Provider adapters resolve the effective publication content immediately before provider validation/execution. This keeps one master post with destination-specific publications rather than duplicating posts.
+
+### Compatibility and preview
+
+`POST /api/composer/compatibility` evaluates unscheduled composer state without provider publishing side effects or scheduler writes. It reports effective caption lengths/known limits, account/media issues, and destination compatibility.
+
+The browser renders safe-DOM platform previews with effective caption/media, character counts, and normalized issues. Compatibility is advisory; final scheduling performs the authoritative validation again.
+
+See `docs/V19_DRAFTS_COMPOSER.md`.
 
 ## Calendar + Queue Lifecycle — V18
 
@@ -352,7 +424,7 @@ Templates are synchronized server-side from the configured WhatsApp Business Acc
 
 Each campaign creates one `WHATSAPP_CAMPAIGN` scheduler job. Recipient and message state is persisted independently.
 
-Campaign, recipients, and scheduler job are now created atomically through the same repository-level consistency rule introduced during V18 hardening.
+Campaign, recipients, and scheduler job are created atomically through the same repository-level consistency rule introduced during V18 hardening.
 
 Message intent is stored before the provider call. Explicit provider rate limits may retry. Ambiguous network/crash delivery does **not** blindly resend; it is terminalized as `DELIVERY_UNCERTAIN` to prevent duplicate external messages.
 
@@ -406,9 +478,10 @@ Recent migrations:
 ```text
 005_operations_center.sql
 006_whatsapp_business.sql
+007_composer_workflows.sql
 ```
 
-V18 does not require a new schema migration; it adds transactional repository operations and lifecycle query/mutation contracts over the existing schema.
+Migration 007 adds persisted V19 draft/reusable-resource records and publication caption/media override fields.
 
 ## Data Model
 
@@ -424,6 +497,10 @@ publication_attempts
 oauth_states
 webhook_events
 provider_status
+composer_drafts
+caption_templates
+hashtag_collections
+destination_groups
 contacts
 whatsapp_templates
 campaigns
@@ -442,11 +519,11 @@ npm test
 find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-Race-safe V18 feature-head run `34848350574` passed **384/384 tests** plus PostgreSQL migrations and JavaScript syntax checks.
+V19 feature implementation run `34855680708` passed **402/402 tests**, applied migrations through `007_composer_workflows.sql`, and passed JavaScript syntax checks.
 
-Coverage includes authentication; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature verification, webhook deduplication and provider telemetry; V17 consent/template/campaign/message behavior; and V18 atomic social/WhatsApp graph creation, failure-injection rollback, transaction-time scheduler/lifecycle stale-state rejection, safe stale-conflict mapping, lifecycle service/API contracts, filters, month/week/day date generation, drag-reschedule local-time preservation, bulk mutation semantics, and Queue/Calendar browser-module wiring.
+Coverage includes authentication; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature verification, webhook deduplication and provider telemetry; V17 consent/template/campaign/message behavior; V18 atomic schedule/lifecycle/calendar/queue behavior; and V19 JSON/PostgreSQL draft persistence, optimistic revision conflicts, reusable composer resources, protected APIs, compatibility reporting, publication override persistence, effective-content validation/provider execution, preview/character-count rendering, dashboard wiring, and composer upload regressions.
 
-Real-provider and browser-E2E verification gaps remain in `PROBLEMS.md`. Automated CI cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, or browser-level interaction testing.
+Real-provider and browser-E2E verification gaps remain in `PROBLEMS.md`. Automated CI cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, or actual browser interaction testing. V19 browser autosave/recovery and stale-revision workflows are specifically tracked under `SR-P001`.
 
 ## Repository Structure
 
@@ -458,10 +535,18 @@ srocial/
 |- PROBLEMS.md
 |- updaterules.md
 |- client/
-|  |- css/pages/queue-calendar.css
+|  |- css/pages/
+|  |  |- composer.css
+|  |  `- queue-calendar.css
 |  `- js/
-|     |- components/calendar.js
-|     `- pages/queue-calendar.js
+|     |- api/composer-workflows-api.js
+|     |- components/
+|     |  |- calendar.js
+|     |  `- platform-preview.js
+|     `- pages/
+|        |- composer.js
+|        |- composer-workflows.js
+|        `- queue-calendar.js
 |- server/
 |  |- auth/
 |  |- db/
@@ -482,21 +567,22 @@ srocial/
 |  |- V15_TIKTOK_PROVIDER.md
 |  |- V16_OPERATIONS_CENTER.md
 |  |- V17_WHATSAPP_BUSINESS.md
-|  `- V18_CALENDAR_QUEUE.md
+|  |- V18_CALENDAR_QUEUE.md
+|  `- V19_DRAFTS_COMPOSER.md
 |- .env.example
 `- package.json
 ```
 
 ## Development Direction
 
-With V18 Calendar + Queue Lifecycle implemented, the next unresolved source-defined product work is:
+With source roadmap items 81–90 implemented by V19, the next unresolved source-defined product work is:
 
-1. **Drafts + Composer Workflows** — draft persistence, autosave/recovery, reusable caption templates, hashtag collections, saved destination groups, per-platform caption/media overrides, previews, character limits, and compatibility reporting;
-2. **Analytics/reporting** — channel/post metrics and reporting after lifecycle workflows are stable;
-3. **Browser end-to-end coverage** for critical operator flows including Calendar/Queue, WhatsApp, Operations Center, authentication, and account management;
-4. **Full users/roles security milestone if required** — database-backed identities, RBAC, invitations/session revocation, trusted-proxy handling, and distributed rate limiting.
+1. **Analytics & Reporting** — begin with source item 98, basic social analytics: normalized channel/post KPI ingestion, storage, API/reporting views, and date/platform/account slices. Source items 91–97 substantially overlap the already-implemented V16 Operations Center, retry/failure tracking, provider health, and verified webhooks;
+2. **Browser end-to-end coverage** for critical operator flows including V19 drafts/autosave/recovery/overrides, Calendar/Queue, WhatsApp, Operations Center, authentication, and account management;
+3. **Full users/roles security milestone if required** — database-backed identities, RBAC, invitations/session revocation, trusted-proxy handling, and distributed rate limiting;
+4. **Legacy scheduling cleanup** — decide whether `SR-P007` platform-only unbound scheduling remains required and remove/migrate it if backward compatibility is no longer needed.
 
-The historical source roadmap placed full Users/Roles at V18, but the live repository introduced single-administrator application authentication earlier. The source's Queue/Calendar gap is now closed by live V18. The next source items immediately following lifecycle management are Drafts, Autosave, templates, reusable content groups, and richer platform-specific creation workflows.
+The historical source roadmap's version labels diverged from live implementation order. Live V18 closed the source Calendar/Queue/Post Management gap; live V19 now closes the source Drafts/Autosave/Templates/Reusable Content/Per-Platform Composer block. Analytics/reporting is therefore the next source-aligned product milestone.
 
 ## Development Rules
 

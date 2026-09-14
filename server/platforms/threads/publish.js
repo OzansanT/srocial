@@ -1,3 +1,4 @@
+import { resolvePublicationContent } from '../publication-content.js';
 import { validateThreadsPost } from './validator.js';
 
 function adapterError(code, retryable = false) {
@@ -30,10 +31,15 @@ export function createThreadsPublishingAdapter({ client, resolveCredentials, get
 
   const capabilities = Object.freeze({ text: true, image: true, video: true, carousel: false });
 
+  async function resolveContent(post, publication) {
+    const baseMedia = await getMedia(post?.id);
+    return resolvePublicationContent({ post, publication, baseMedia });
+  }
+
   async function validatePost({ post, publication } = {}) {
     requireAccountId(publication);
-    const media = await getMedia(post?.id);
-    return validateThreadsPost({ post, media });
+    const content = await resolveContent(post, publication);
+    return validateThreadsPost({ post: content.post, media: content.media });
   }
 
   async function inspectContainer(containerId, accessToken) {
@@ -67,8 +73,8 @@ export function createThreadsPublishingAdapter({ client, resolveCredentials, get
 
   async function publish({ post = {}, publication = {} } = {}) {
     const accountId = requireAccountId(publication);
-    const media = await getMedia(post.id);
-    const normalized = validateThreadsPost({ post, media });
+    const content = await resolveContent(post, publication);
+    const normalized = validateThreadsPost({ post: content.post, media: content.media });
     const credentials = await resolveCredentials(accountId);
     const accessToken = String(credentials?.accessToken ?? '').trim();
     if (!accessToken) throw adapterError('AUTH_ERROR');

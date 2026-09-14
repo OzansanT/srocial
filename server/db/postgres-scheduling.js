@@ -39,6 +39,8 @@ function mapPublication(row) {
     state: row.state,
     scheduledAt: timestamp(row.scheduled_at),
     providerOptions: row.provider_options ?? {},
+    captionOverride: row.caption_override ?? null,
+    mediaOverride: row.media_override ?? null,
     externalId: row.external_id,
     externalUrl: row.external_url,
     errorCode: row.error_code,
@@ -227,9 +229,9 @@ export function createPostgresScheduling(database) {
           const publicationRecord = plan.publication ?? {};
           const publicationResult = await client.query(
             `INSERT INTO publications (
-              id, post_id, account_id, platform, state, scheduled_at, provider_options, external_id,
-              external_url, error_code, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+              id, post_id, account_id, platform, state, scheduled_at, provider_options, caption_override,
+              media_override, external_id, external_url, error_code, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
             [
               publicationId,
               postId,
@@ -238,6 +240,8 @@ export function createPostgresScheduling(database) {
               publicationRecord.state,
               publicationRecord.scheduledAt,
               publicationRecord.providerOptions ?? {},
+              publicationRecord.captionOverride ?? null,
+              publicationRecord.mediaOverride ?? null,
               publicationRecord.externalId ?? null,
               publicationRecord.externalUrl ?? null,
               publicationRecord.errorCode ?? null,

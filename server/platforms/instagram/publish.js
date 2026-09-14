@@ -1,3 +1,4 @@
+import { resolvePublicationContent } from '../publication-content.js';
 import { validateInstagramPublication } from './validator.js';
 
 function adapterError(code, retryable = false) {
@@ -16,6 +17,11 @@ export function createInstagramPublishingAdapter({ client, resolveCredentials, g
   if (typeof resolveCredentials !== 'function') throw new Error('INSTAGRAM_CREDENTIAL_RESOLVER_REQUIRED');
   if (typeof getMedia !== 'function') throw new Error('INSTAGRAM_MEDIA_RESOLVER_REQUIRED');
 
+  async function resolveContent(post, publication) {
+    const baseMedia = await getMedia(post?.id);
+    return resolvePublicationContent({ post, publication, baseMedia });
+  }
+
   async function publishContainer({ providerAccountId, accessToken, containerId }) {
     const result = await client.postGraph(`/${providerAccountId}/media_publish`, { body: { creation_id: containerId }, accessToken });
     return { status: 'PUBLISHED', externalId: requireContainerId(result), containerId };
@@ -32,10 +38,14 @@ export function createInstagramPublishingAdapter({ client, resolveCredentials, g
   }
 
   return {
-    async validatePost({ post }) { return validateInstagramPublication({ post, media: await getMedia(post?.id) }); },
+    async validatePost({ post, publication } = {}) {
+      const content = await resolveContent(post, publication);
+      return validateInstagramPublication({ post: content.post, media: content.media });
+    },
     async publish({ post, publication }) {
       const accountId = requirePublicationAccount(publication);
-      const normalized = validateInstagramPublication({ post, media: await getMedia(post?.id) });
+      const content = await resolveContent(post, publication);
+      const normalized = validateInstagramPublication({ post: content.post, media: content.media });
       const credentials = requireCredentials(await resolveCredentials(accountId));
       const body = normalized.type === 'image'
         ? { image_url: normalized.url, caption: normalized.caption }

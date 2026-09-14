@@ -63,8 +63,49 @@
 
         <article class="card panel" id="create">
           <div class="panel__header"><div><p class="eyebrow">Scheduler</p><h2>Create social post</h2></div></div>
+
+          <section class="composer-workflow" aria-labelledby="draft-workflow-title">
+            <div class="composer-workflow__heading">
+              <div><p class="eyebrow">Draft workspace</p><h3 id="draft-workflow-title">Drafts &amp; autosave</h3></div>
+              <div class="composer-workflow__actions">
+                <button class="button button--secondary" id="save-draft-now" type="button">Save now</button>
+                <button class="button button--danger" id="delete-draft" type="button" disabled>Delete draft</button>
+              </div>
+            </div>
+            <div class="composer-workflow__grid">
+              <label class="field" for="draft-selector"><span>Saved draft</span><select id="draft-selector"><option value="">New / unsaved draft</option></select></label>
+              <label class="field" for="draft-name"><span>Draft name</span><input id="draft-name" type="text" maxlength="200" placeholder="Campaign launch draft"></label>
+            </div>
+            <p id="draft-status" class="form-feedback" aria-live="polite">Changes autosave after a short delay and never schedule by themselves.</p>
+          </section>
+
           <form class="composer" id="social-composer">
-            <label class="field" for="post-caption"><span>Caption</span><textarea id="post-caption" name="caption" rows="5" maxlength="10000" required placeholder="Write the master caption…"></textarea></label>
+            <label class="field" for="post-caption"><span>Master caption</span><textarea id="post-caption" name="caption" rows="5" maxlength="10000" placeholder="Write the master caption…"></textarea><small>Each selected platform can override this caption below.</small></label>
+
+            <section class="composer-resources" aria-labelledby="reusable-content-title">
+              <div class="composer-section-heading"><div><p class="eyebrow">Reusable content</p><h3 id="reusable-content-title">Templates &amp; collections</h3></div></div>
+              <div class="composer-resource-grid">
+                <div class="composer-resource-card">
+                  <label class="field" for="caption-template-selector"><span>Caption template</span><select id="caption-template-selector"><option value="">Select caption template</option></select></label>
+                  <div class="composer-resource-actions"><button class="button button--secondary" id="apply-caption-template" type="button">Apply</button><button class="button button--secondary" id="delete-caption-template" type="button">Delete</button></div>
+                  <label class="field" for="caption-template-name"><span>Save current caption as</span><input id="caption-template-name" type="text" maxlength="200" placeholder="Product launch"></label>
+                  <button class="button button--secondary" id="save-caption-template" type="button">Save caption template</button>
+                </div>
+                <div class="composer-resource-card">
+                  <label class="field" for="hashtag-collection-selector"><span>Hashtag collection</span><select id="hashtag-collection-selector"><option value="">Select hashtag collection</option></select></label>
+                  <div class="composer-resource-actions"><button class="button button--secondary" id="apply-hashtag-collection" type="button">Append</button><button class="button button--secondary" id="delete-hashtag-collection" type="button">Delete</button></div>
+                  <label class="field" for="hashtag-collection-name"><span>Collection name</span><input id="hashtag-collection-name" type="text" maxlength="200" placeholder="Brand tags"></label>
+                  <label class="field" for="hashtag-collection-tags"><span>Hashtags</span><input id="hashtag-collection-tags" type="text" placeholder="#brand #launch #social"></label>
+                  <button class="button button--secondary" id="save-hashtag-collection" type="button">Save hashtag collection</button>
+                </div>
+                <div class="composer-resource-card">
+                  <label class="field" for="destination-group-selector"><span>Destination group</span><select id="destination-group-selector"><option value="">Select destination group</option></select></label>
+                  <div class="composer-resource-actions"><button class="button button--secondary" id="apply-destination-group" type="button">Apply</button><button class="button button--secondary" id="delete-destination-group" type="button">Delete</button></div>
+                  <label class="field" for="destination-group-name"><span>Save selected destinations as</span><input id="destination-group-name" type="text" maxlength="200" placeholder="All brand channels"></label>
+                  <button class="button button--secondary" id="save-destination-group" type="button">Save destination group</button>
+                </div>
+              </div>
+            </section>
 
             <fieldset class="platform-picker"><legend>Destinations</legend>
               <div class="platform-account-grid">
@@ -109,7 +150,45 @@
               <label class="field" for="media-url"><span>Media URL</span><input id="media-url" name="mediaUrl" type="url" inputmode="url" placeholder="https://cdn.example.com/post.jpg"><small>Optional globally; provider publishing requires provider-supported public HTTPS media.</small></label>
             </div>
 
+            <fieldset class="platform-overrides" id="platform-overrides">
+              <legend>Per-platform overrides</legend>
+              <p class="platform-picker__help">Leave fields on Inherit to use the master caption and media. Empty media is allowed only where the provider supports text-only publishing.</p>
+              <div class="platform-overrides__grid">
+                <section class="platform-override-card" aria-labelledby="instagram-override-title">
+                  <h4 id="instagram-override-title">Instagram</h4>
+                  <label class="field"><span>Caption override</span><textarea name="override:instagram:caption" rows="3" maxlength="2200" placeholder="Inherit master caption"></textarea></label>
+                  <label class="field"><span>Media behavior</span><select name="override:instagram:mediaMode"><option value="inherit">Inherit master media</option><option value="none">No media</option><option value="custom">Custom media</option></select></label>
+                  <div class="override-media-grid"><select name="override:instagram:mediaType" aria-label="Instagram override media type"><option value="image">Image</option><option value="video">Video / Reel</option></select><input name="override:instagram:mediaUrl" type="url" placeholder="https://…" aria-label="Instagram override media URL"></div>
+                </section>
+                <section class="platform-override-card" aria-labelledby="facebook-override-title">
+                  <h4 id="facebook-override-title">Facebook</h4>
+                  <label class="field"><span>Caption override</span><textarea name="override:facebook:caption" rows="3" maxlength="63206" placeholder="Inherit master caption"></textarea></label>
+                  <label class="field"><span>Media behavior</span><select name="override:facebook:mediaMode"><option value="inherit">Inherit master media</option><option value="none">No media</option><option value="custom">Custom media</option></select></label>
+                  <div class="override-media-grid"><select name="override:facebook:mediaType" aria-label="Facebook override media type"><option value="image">Image</option><option value="video">Video / Reel</option></select><input name="override:facebook:mediaUrl" type="url" placeholder="https://…" aria-label="Facebook override media URL"></div>
+                </section>
+                <section class="platform-override-card" aria-labelledby="threads-override-title">
+                  <h4 id="threads-override-title">Threads</h4>
+                  <label class="field"><span>Caption override</span><textarea name="override:threads:caption" rows="3" maxlength="500" placeholder="Inherit master caption"></textarea></label>
+                  <label class="field"><span>Media behavior</span><select name="override:threads:mediaMode"><option value="inherit">Inherit master media</option><option value="none">No media</option><option value="custom">Custom media</option></select></label>
+                  <div class="override-media-grid"><select name="override:threads:mediaType" aria-label="Threads override media type"><option value="image">Image</option><option value="video">Video</option></select><input name="override:threads:mediaUrl" type="url" placeholder="https://…" aria-label="Threads override media URL"></div>
+                </section>
+                <section class="platform-override-card" aria-labelledby="tiktok-override-title">
+                  <h4 id="tiktok-override-title">TikTok</h4>
+                  <label class="field"><span>Caption override</span><textarea name="override:tiktok:caption" rows="3" maxlength="2200" placeholder="Inherit master caption"></textarea></label>
+                  <label class="field"><span>Media behavior</span><select name="override:tiktok:mediaMode"><option value="inherit">Inherit master media</option><option value="none">No media</option><option value="custom">Custom media</option></select></label>
+                  <div class="override-media-grid"><select name="override:tiktok:mediaType" aria-label="TikTok override media type"><option value="image">Image</option><option value="video">Video</option></select><input name="override:tiktok:mediaUrl" type="url" placeholder="https://…" aria-label="TikTok override media URL"></div>
+                </section>
+              </div>
+            </fieldset>
+
             <label class="field" for="scheduled-at"><span>Publish time</span><input id="scheduled-at" name="scheduledAt" type="datetime-local" required><small>Local browser time; Srocial stores the scheduled moment in UTC.</small></label>
+
+            <section class="composer-compatibility" aria-labelledby="compatibility-title">
+              <div class="composer-section-heading"><div><p class="eyebrow">Pre-publish validation</p><h3 id="compatibility-title">Compatibility &amp; previews</h3></div></div>
+              <p id="compatibility-report" class="form-feedback" aria-live="polite">Select a destination for compatibility checks.</p>
+              <div id="platform-previews" class="platform-previews" aria-live="polite"></div>
+            </section>
+
             <div class="composer__footer"><p class="form-feedback" id="composer-feedback" aria-live="polite"></p><button class="button button--primary" type="submit">Schedule</button></div>
           </form>
         </article>

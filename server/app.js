@@ -5,6 +5,7 @@ import { readJsonBody, RequestBodyError } from './http/read-json-body.js';
 import { readRawBody } from './http/read-raw-body.js';
 import { getHealthPayload } from './routes/health.js';
 import { getDashboardPayload } from './routes/dashboard.js';
+import { routeComposerWorkflowRequest } from './routes/composer-workflows.js';
 import {
   bulkCancelPostsPayload,
   bulkReschedulePostsPayload,
@@ -263,6 +264,12 @@ export function createRequestHandler({
       if (request.method === 'GET' && url.pathname === '/api/operations') {
         const result = await getOperationsPayload(repository);
         return sendJson(response, result.statusCode, result.payload);
+      }
+
+      const composerResult = await routeComposerWorkflowRequest({ request, pathname: url.pathname, repository, now: now() });
+      if (composerResult) {
+        if (composerResult.statusCode === 204) return sendNoContent(response);
+        return sendJson(response, composerResult.statusCode, composerResult.payload);
       }
 
       if (request.method === 'GET' && url.pathname === '/api/whatsapp/contacts') {

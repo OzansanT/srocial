@@ -1,3 +1,4 @@
+import { resolvePublicationContent } from '../publication-content.js';
 import { validateTikTokPost } from './validator.js';
 
 function providerError(code, retryable = false) {
@@ -90,10 +91,20 @@ export function createTikTokPublishingAdapter({ client, resolveCredentials, getM
     return normalizeCreatorInfo(payload);
   }
 
+  async function resolveContent(post, publication) {
+    const baseMedia = await getMedia(post?.id);
+    return resolvePublicationContent({ post, publication, baseMedia });
+  }
+
+  async function validatePost({ post, publication } = {}) {
+    const content = await resolveContent(post, publication);
+    return validateTikTokPost({ post: content.post, media: content.media, options: publication?.providerOptions });
+  }
+
   async function publish({ post, publication } = {}) {
     const auth = await credentials(publication?.accountId);
-    const media = await getMedia(post?.id);
-    const validated = validateTikTokPost({ post, media, options: publication?.providerOptions });
+    const content = await resolveContent(post, publication);
+    const validated = validateTikTokPost({ post: content.post, media: content.media, options: publication?.providerOptions });
     const creatorInfo = normalizeCreatorInfo(await client.postApi('/v2/post/publish/creator_info/query/', {
       accessToken: auth.accessToken,
       body: {}
@@ -137,6 +148,6 @@ export function createTikTokPublishingAdapter({ client, resolveCredentials, getM
     getCreatorInfo,
     publish,
     getStatus,
-    validatePost: validateTikTokPost
+    validatePost
   };
 }

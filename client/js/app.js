@@ -2,6 +2,7 @@ import { getSession, logout } from './api/auth-api.js';
 import { getDashboard, getHealth } from './api/dashboard-api.js';
 import { initializeAccounts } from './pages/accounts.js';
 import { initializeComposer } from './pages/composer.js';
+import { initializeComposerWorkflows } from './pages/composer-workflows.js';
 import { initializeMediaLibrary } from './pages/media-library.js';
 import { initializeOperations } from './pages/operations.js';
 import { initializeQueueCalendar } from './pages/queue-calendar.js';
@@ -9,6 +10,7 @@ import { initializeWhatsApp } from './pages/whatsapp.js';
 import { renderDashboard } from './pages/dashboard.js';
 
 let queueCalendar = { refresh: async () => {} };
+let composerWorkflows = { markScheduled() {} };
 
 async function refreshDashboardOnly() {
   renderDashboard(await getDashboard());
@@ -54,7 +56,13 @@ async function bootstrap() {
   const statusText = document.querySelector('#service-status');
   const statusDot = document.querySelector('.status-dot');
   await initializeSessionControls();
-  const composer = await initializeComposer({ onScheduled: refreshPublishingData });
+  const composer = await initializeComposer({
+    onScheduled: async () => {
+      composerWorkflows.markScheduled();
+      await refreshPublishingData();
+    }
+  });
+  composerWorkflows = initializeComposerWorkflows({ composer });
   await initializeAccounts({ onChanged: composer.refreshAccounts });
   initializeMediaLibrary({ onUseMedia: composer.useMedia });
   initializeWhatsApp();
