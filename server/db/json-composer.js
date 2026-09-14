@@ -9,26 +9,37 @@ function revisionConflict() {
 }
 
 export function createJsonComposer({ mutate, stableRead, enqueueMutation, getData }) {
+  function ensure(collection) {
+    const data = getData();
+    if (!Array.isArray(data[collection])) data[collection] = [];
+    return data[collection];
+  }
+
+  function create(collection, record) {
+    ensure(collection);
+    return mutate(collection, record);
+  }
+
   function remove(collection, id) {
     return enqueueMutation(() => {
-      const data = getData();
-      const index = data[collection].findIndex((item) => item.id === id);
+      const items = ensure(collection);
+      const index = items.findIndex((item) => item.id === id);
       if (index < 0) return false;
-      data[collection].splice(index, 1);
+      items.splice(index, 1);
       return true;
     });
   }
 
   return {
-    createDraft(record) { return mutate('composerDrafts', record); },
-    getDraft(id) { return stableRead(() => getData().composerDrafts.find((item) => item.id === id) ?? null); },
+    createDraft(record) { return create('composerDrafts', record); },
+    getDraft(id) { return stableRead(() => ensure('composerDrafts').find((item) => item.id === id) ?? null); },
     listDrafts() {
-      return stableRead(() => [...getData().composerDrafts]
+      return stableRead(() => [...ensure('composerDrafts')]
         .sort((a, b) => Date.parse(b.updatedAt ?? '') - Date.parse(a.updatedAt ?? '')));
     },
     updateDraft(id, patch, expectedRevision) {
       return enqueueMutation(() => {
-        const item = getData().composerDrafts.find((candidate) => candidate.id === id);
+        const item = ensure('composerDrafts').find((candidate) => candidate.id === id);
         if (!item) return null;
         if (Number(item.revision ?? 1) !== Number(expectedRevision)) throw revisionConflict();
         Object.assign(item, clone(patch), { id: item.id, revision: Number(item.revision ?? 1) + 1 });
@@ -36,21 +47,21 @@ export function createJsonComposer({ mutate, stableRead, enqueueMutation, getDat
       });
     },
     deleteDraft(id) { return remove('composerDrafts', id); },
-    createCaptionTemplate(record) { return mutate('captionTemplates', record); },
+    createCaptionTemplate(record) { return create('captionTemplates', record); },
     listCaptionTemplates() {
-      return stableRead(() => [...getData().captionTemplates]
+      return stableRead(() => [...ensure('captionTemplates')]
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))));
     },
     deleteCaptionTemplate(id) { return remove('captionTemplates', id); },
-    createHashtagCollection(record) { return mutate('hashtagCollections', record); },
+    createHashtagCollection(record) { return create('hashtagCollections', record); },
     listHashtagCollections() {
-      return stableRead(() => [...getData().hashtagCollections]
+      return stableRead(() => [...ensure('hashtagCollections')]
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))));
     },
     deleteHashtagCollection(id) { return remove('hashtagCollections', id); },
-    createDestinationGroup(record) { return mutate('destinationGroups', record); },
+    createDestinationGroup(record) { return create('destinationGroups', record); },
     listDestinationGroups() {
-      return stableRead(() => [...getData().destinationGroups]
+      return stableRead(() => [...ensure('destinationGroups')]
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))));
     },
     deleteDestinationGroup(id) { return remove('destinationGroups', id); }
