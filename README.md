@@ -314,6 +314,8 @@ Queue supports:
 
 Edit/reschedule are rejected once execution has begun. Cancel and retry fail closed when a provider `externalId` indicates an external side effect may already exist. Bulk operations validate the complete set before making an atomic mutation.
 
+The repository revalidates expected publication/job state at commit time so the scheduler cannot claim a job between service validation and a lifecycle mutation. PostgreSQL locks affected rows inside the lifecycle transaction; JSON performs the equivalent preflight before patching its candidate snapshot. A stale scheduler state becomes a safe lifecycle conflict rather than overwriting newly running work.
+
 Duplicate uses the ordinary scheduling path and revalidates connected accounts/provider requirements rather than cloning execution records blindly.
 
 See `docs/V18_CALENDAR_QUEUE.md`.
@@ -440,9 +442,9 @@ npm test
 find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-V18 feature-head run `34847163782` passed **381/381 tests** plus PostgreSQL migrations and JavaScript syntax checks.
+Race-safe V18 feature-head run `34848350574` passed **384/384 tests** plus PostgreSQL migrations and JavaScript syntax checks.
 
-Coverage includes authentication; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature verification, webhook deduplication and provider telemetry; V17 consent/template/campaign/message behavior; and V18 atomic social/WhatsApp graph creation, failure-injection rollback, lifecycle service/API contracts, filters, month/week/day date generation, drag-reschedule local-time preservation, bulk mutation semantics, and Queue/Calendar browser-module wiring.
+Coverage includes authentication; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature verification, webhook deduplication and provider telemetry; V17 consent/template/campaign/message behavior; and V18 atomic social/WhatsApp graph creation, failure-injection rollback, transaction-time scheduler/lifecycle stale-state rejection, safe stale-conflict mapping, lifecycle service/API contracts, filters, month/week/day date generation, drag-reschedule local-time preservation, bulk mutation semantics, and Queue/Calendar browser-module wiring.
 
 Real-provider and browser-E2E verification gaps remain in `PROBLEMS.md`. Automated CI cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, or browser-level interaction testing.
 
