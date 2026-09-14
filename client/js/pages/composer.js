@@ -19,6 +19,13 @@ function setDefaultSchedule(input) {
   input.min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
+function localDateTimeValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 function formatError(error) {
   const details = error?.payload?.details;
   if (Array.isArray(details) && details.length) return details.map((item) => item.message).join(' ');
@@ -34,16 +41,18 @@ function checked(formData, name) {
   return formData.get(name) != null;
 }
 
-function buildTikTokOptions(formData) {
+function buildTikTokOptions(formData, { permissive = false } = {}) {
   const privacyLevel = String(formData.get('tiktok:privacyLevel') ?? '').trim();
-  if (!privacyLevel) throw new Error('TikTok requires you to select a privacy level.');
   const consent = checked(formData, 'tiktok:consent');
-  if (!consent) throw new Error('TikTok requires posting and music-usage consent.');
   const commercialContent = checked(formData, 'tiktok:commercialContent');
   const brandOrganic = checked(formData, 'tiktok:brandOrganic');
   const brandContent = checked(formData, 'tiktok:brandContent');
-  if (commercialContent && !brandOrganic && !brandContent) {
-    throw new Error('TikTok commercial content requires a disclosure type.');
+  if (!permissive) {
+    if (!privacyLevel) throw new Error('TikTok requires you to select a privacy level.');
+    if (!consent) throw new Error('TikTok requires posting and music-usage consent.');
+    if (commercialContent && !brandOrganic && !brandContent) {
+      throw new Error('TikTok commercial content requires a disclosure type.');
+    }
   }
   return {
     privacyLevel,
@@ -58,30 +67,63 @@ function buildTikTokOptions(formData) {
   };
 }
 
-export function buildComposerPayload({ formData, accounts = [] }) {
+function applyDestinationOverrides(formData, platform, destination) {
+  const caption = String(formData.get(`override:${platform}:caption`) ?? '').trim();
+  const mediaMode = String(formData.get(`override:${platform}:mediaMode`) ?? 'inherit');
+  if (caption) destination.captionOverride = caption;
+  if (mediaMode === 'none') destination.mediaOverride = [];
+  if (mediaMode === 'custom') {
+    const url = String(formData.get(`override:${platform}:mediaUrl`) ?? '').trim();
+    const type = String(formData.get(`override:${platform}:mediaType`) ?? 'image').trim().toLowerCase();
+    destination.mediaOverride = url ? [{ type, url }] : [];
+  }
+  return destination;
+}
+
+function buildDestinations(formData, accounts, { strict = true } = {}) {
   const platforms = formData.getAll('platform').map((value) => String(value).trim().toLowerCase()).filter(Boolean);
-  const destinations = platforms.map((platform) => {
+  return platforms.map((platform) => {
     const accountId = String(formData.get(`account:${platform}`) ?? '').trim();
-    if (!connectedAccount(accounts, platform, accountId)) {
+    if (strict && !connectedAccount(accounts, platform, accountId)) {
       throw new Error(`Select a connected account for ${platform}.`);
     }
-    if (platform === 'tiktok') return { platform, accountId, options: buildTikTokOptions(formData) };
-    return { platform, accountId };
+    const destination = platform === 'tiktok'
+      ? { platform, accountId, options: buildTikTokOptions(formData, { permissive: !strict }) }
+      : { platform, accountId };
+    return applyDestinationOverrides(formData, platform, destination);
   });
+}
 
+function baseMedia(formData) {
+  const mediaUrl = String(formData.get('mediaUrl') ?? '').trim();
+  const mediaType = String(formData.get('mediaType') ?? 'image').trim().toLowerCase();
+  return mediaUrl ? [{ type: mediaType, url: mediaUrl }] : [];
+}
+
+export function buildComposerPayload({ formData, accounts = [] }) {
+  const destinations = buildDestinations(formData, accounts, { strict: true });
   const scheduledAtValue = String(formData.get('scheduledAt') ?? '');
   const localDate = new Date(scheduledAtValue);
   if (!Number.isFinite(localDate.getTime())) throw new Error('Select a valid publish time.');
 
-  const mediaUrl = String(formData.get('mediaUrl') ?? '').trim();
-  const mediaType = String(formData.get('mediaType') ?? 'image').trim().toLowerCase();
-  const media = mediaUrl ? [{ type: mediaType, url: mediaUrl }] : [];
-
   return {
     caption: String(formData.get('caption') ?? ''),
     destinations,
-    media,
+    media: baseMedia(formData),
     scheduledAt: localDate.toISOString()
+  };
+}
+
+function buildPermissiveState(form, accounts) {
+  const formData = new FormData(form);
+  const scheduledAtValue = String(formData.get('scheduledAt') ?? '');
+  const localDate = new Date(scheduledAtValue);
+  return {
+    caption: String(formData.get('caption') ?? ''),
+    destinations: buildDestinations(formData, accounts, { strict: false }),
+    media: baseMedia(formData),
+    scheduledAt: Number.isFinite(localDate.getTime()) ? localDate.toISOString() : null,
+    platformOverrides: {}
   };
 }
 
@@ -128,7 +170,7 @@ export async function initializeComposer({ onScheduled } = {}) {
   const feedback = document.querySelector('#composer-feedback');
   const focusButton = document.querySelector('#focus-composer');
   if (!form || !scheduleInput || !feedback) {
-    return { refreshAccounts: async () => [], useMedia: () => false };
+    return { refreshAccounts: async () => [], useMedia: () => false, getState: () => null, applyState: async () => false, getAccounts: () => [] };
   }
 
   const fileInput = document.querySelector('#media-file');
@@ -168,6 +210,7 @@ export async function initializeComposer({ onScheduled } = {}) {
         ? 'Media selected from library.'
         : 'Media selected, but provider publishing requires a public HTTPS URL.';
     }
+    form.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   }
 
@@ -272,6 +315,7 @@ export async function initializeComposer({ onScheduled } = {}) {
       mediaType.value = media.type;
       uploadFeedback.dataset.state = media.state;
       uploadFeedback.textContent = media.message;
+      form.dispatchEvent(new Event('input', { bubbles: true }));
     } catch (error) {
       uploadFeedback.dataset.state = 'error';
       uploadFeedback.textContent = UPLOAD_ERRORS[error?.payload?.error] || 'Unable to upload this file. Please try again.';
@@ -301,6 +345,78 @@ export async function initializeComposer({ onScheduled } = {}) {
       feedback.textContent = 'Unable to load connected accounts.';
       return accounts;
     }
+  }
+
+  function getState() {
+    return buildPermissiveState(form, accounts);
+  }
+
+  async function applyState(state = {}) {
+    const captionInput = form.elements.namedItem('caption');
+    if (captionInput) captionInput.value = String(state.caption ?? '');
+    if (mediaUrl) mediaUrl.value = String(state.media?.[0]?.url ?? '');
+    if (mediaType) mediaType.value = String(state.media?.[0]?.type ?? 'image') || 'image';
+    if (scheduleInput && state.scheduledAt) scheduleInput.value = localDateTimeValue(state.scheduledAt);
+
+    for (const platform of SOCIAL_PLATFORMS) {
+      const checkbox = form.querySelector(`input[name="platform"][value="${platform}"]`);
+      const select = form.querySelector(`[name="account:${platform}"]`);
+      if (checkbox) checkbox.checked = false;
+      if (select) select.value = '';
+      const captionOverride = form.elements.namedItem(`override:${platform}:caption`);
+      const mediaMode = form.elements.namedItem(`override:${platform}:mediaMode`);
+      const overrideMediaUrl = form.elements.namedItem(`override:${platform}:mediaUrl`);
+      const overrideMediaType = form.elements.namedItem(`override:${platform}:mediaType`);
+      if (captionOverride) captionOverride.value = '';
+      if (mediaMode) mediaMode.value = 'inherit';
+      if (overrideMediaUrl) overrideMediaUrl.value = '';
+      if (overrideMediaType) overrideMediaType.value = 'image';
+    }
+
+    applyAccountAvailability(accounts);
+    for (const destination of Array.isArray(state.destinations) ? state.destinations : []) {
+      const platform = String(destination.platform ?? '').toLowerCase();
+      if (!SOCIAL_PLATFORMS.includes(platform)) continue;
+      const checkbox = form.querySelector(`input[name="platform"][value="${platform}"]`);
+      const select = form.querySelector(`[name="account:${platform}"]`);
+      if (select && [...select.options].some((option) => option.value === destination.accountId)) select.value = destination.accountId;
+      if (checkbox && select?.value) checkbox.checked = true;
+      const captionOverride = form.elements.namedItem(`override:${platform}:caption`);
+      if (captionOverride && destination.captionOverride != null) captionOverride.value = destination.captionOverride;
+      const mediaMode = form.elements.namedItem(`override:${platform}:mediaMode`);
+      const overrideMediaUrl = form.elements.namedItem(`override:${platform}:mediaUrl`);
+      const overrideMediaType = form.elements.namedItem(`override:${platform}:mediaType`);
+      if (mediaMode && Array.isArray(destination.mediaOverride)) {
+        if (destination.mediaOverride.length === 0) mediaMode.value = 'none';
+        else {
+          mediaMode.value = 'custom';
+          if (overrideMediaUrl) overrideMediaUrl.value = destination.mediaOverride[0]?.url ?? '';
+          if (overrideMediaType) overrideMediaType.value = destination.mediaOverride[0]?.type ?? 'image';
+        }
+      }
+    }
+
+    await refreshTikTokCapabilities();
+    const tiktokDestination = (state.destinations ?? []).find((item) => item.platform === 'tiktok');
+    const options = tiktokDestination?.options ?? {};
+    if (tiktokDestination && tiktokPrivacy && [...tiktokPrivacy.options].some((option) => option.value === options.privacyLevel)) {
+      tiktokPrivacy.value = options.privacyLevel;
+    }
+    const booleanOptions = {
+      'tiktok:allowComment': options.allowComment,
+      'tiktok:allowDuet': options.allowDuet,
+      'tiktok:allowStitch': options.allowStitch,
+      'tiktok:commercialContent': options.commercialContent,
+      'tiktok:brandOrganic': options.brandOrganic,
+      'tiktok:brandContent': options.brandContent,
+      'tiktok:isAigc': options.isAigc,
+      'tiktok:consent': options.consent
+    };
+    for (const [name, value] of Object.entries(booleanOptions)) {
+      const control = form.elements.namedItem(name);
+      if (control && 'checked' in control) control.checked = value === true;
+    }
+    return true;
   }
 
   await refreshAccounts();
@@ -335,5 +451,5 @@ export async function initializeComposer({ onScheduled } = {}) {
     }
   });
 
-  return { refreshAccounts, useMedia };
+  return { refreshAccounts, useMedia, getState, applyState, getAccounts: () => [...accounts] };
 }
