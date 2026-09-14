@@ -8,6 +8,16 @@ function memoryRepository() {
   const posts = [], publications = [], jobs = [], media = [];
   let id = 0;
   const add = (list, record) => { const item = { id: String(++id), ...structuredClone(record) }; list.push(item); return structuredClone(item); };
+  const operations = () => posts.map((post) => ({
+    ...structuredClone(post),
+    media: structuredClone(media.filter((item) => item.postId === post.id)),
+    publications: publications
+      .filter((item) => item.postId === post.id)
+      .map((publication) => ({
+        ...structuredClone(publication),
+        jobs: structuredClone(jobs.filter((job) => job.publicationId === publication.id))
+      }))
+  }));
   return {
     async createSocialScheduleGraph({ post, media: mediaRecords = [], publicationPlans = [] }) {
       const createdPost = add(posts, post);
@@ -22,7 +32,8 @@ function memoryRepository() {
       return { post: createdPost, media: createdMedia, publications: createdPublications, jobs: createdJobs };
     },
     async listJobs() { return structuredClone(jobs); },
-    async listPostsWithPublications() { return posts.map((post) => ({ ...structuredClone(post), publications: structuredClone(publications.filter((item) => item.postId === post.id)) })); }
+    async listPostsWithPublications() { return posts.map((post) => ({ ...structuredClone(post), publications: structuredClone(publications.filter((item) => item.postId === post.id)) })); },
+    async listPostOperations() { return structuredClone(operations()); }
   };
 }
 
