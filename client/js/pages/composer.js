@@ -1,5 +1,5 @@
 import { createPost } from '../api/posts-api.js';
-import { listAccounts } from '../api/accounts-api.js';
+import { getTikTokCreatorInfo, listAccounts } from '../api/accounts-api.js';
 import { uploadMedia, describeUploadedMedia } from '../api/media-api.js';
 
 const SOCIAL_PLATFORMS = ['instagram', 'facebook', 'threads', 'tiktok'];
@@ -30,6 +30,34 @@ function connectedAccount(accounts, platform, accountId) {
   return accounts.find((account) => account.id === accountId && account.provider === platform && account.state === 'CONNECTED');
 }
 
+function checked(formData, name) {
+  return formData.get(name) != null;
+}
+
+function buildTikTokOptions(formData) {
+  const privacyLevel = String(formData.get('tiktok:privacyLevel') ?? '').trim();
+  if (!privacyLevel) throw new Error('TikTok requires you to select a privacy level.');
+  const consent = checked(formData, 'tiktok:consent');
+  if (!consent) throw new Error('TikTok requires posting and music-usage consent.');
+  const commercialContent = checked(formData, 'tiktok:commercialContent');
+  const brandOrganic = checked(formData, 'tiktok:brandOrganic');
+  const brandContent = checked(formData, 'tiktok:brandContent');
+  if (commercialContent && !brandOrganic && !brandContent) {
+    throw new Error('TikTok commercial content requires a disclosure type.');
+  }
+  return {
+    privacyLevel,
+    allowComment: checked(formData, 'tiktok:allowComment'),
+    allowDuet: checked(formData, 'tiktok:allowDuet'),
+    allowStitch: checked(formData, 'tiktok:allowStitch'),
+    commercialContent,
+    brandOrganic,
+    brandContent,
+    isAigc: checked(formData, 'tiktok:isAigc'),
+    consent
+  };
+}
+
 export function buildComposerPayload({ formData, accounts = [] }) {
   const platforms = formData.getAll('platform').map((value) => String(value).trim().toLowerCase()).filter(Boolean);
   const destinations = platforms.map((platform) => {
@@ -37,6 +65,7 @@ export function buildComposerPayload({ formData, accounts = [] }) {
     if (!connectedAccount(accounts, platform, accountId)) {
       throw new Error(`Select a connected account for ${platform}.`);
     }
+    if (platform === 'tiktok') return { platform, accountId, options: buildTikTokOptions(formData) };
     return { platform, accountId };
   });
 
@@ -86,6 +115,13 @@ function applyAccountAvailability(accounts) {
   }
 }
 
+function createPrivacyOption(value) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+  return option;
+}
+
 export async function initializeComposer({ onScheduled } = {}) {
   const form = document.querySelector('#social-composer');
   const scheduleInput = document.querySelector('#scheduled-at');
@@ -101,8 +137,18 @@ export async function initializeComposer({ onScheduled } = {}) {
   const mediaUrl = document.querySelector('#media-url');
   const mediaType = document.querySelector('#media-type');
   const submitButton = document.querySelector('#social-composer button[type="submit"]');
+  const tiktokCheckbox = document.querySelector('input[name="platform"][value="tiktok"]');
+  const tiktokAccount = document.querySelector('[name="account:tiktok"]');
+  const tiktokPanel = document.querySelector('#tiktok-publishing-options');
+  const tiktokIdentity = document.querySelector('#tiktok-creator-identity');
+  const tiktokCapabilities = document.querySelector('#tiktok-capabilities-feedback');
+  const tiktokPrivacy = document.querySelector('[name="tiktok:privacyLevel"]');
+  const tiktokComment = document.querySelector('[name="tiktok:allowComment"]');
+  const tiktokDuet = document.querySelector('[name="tiktok:allowDuet"]');
+  const tiktokStitch = document.querySelector('[name="tiktok:allowStitch"]');
   let uploading = false;
   let scheduling = false;
+  let tiktokCapabilityRequest = 0;
 
   function updateBusyControls() {
     for (const control of [uploadButton, fileInput, mediaUrl, mediaType, submitButton]) {
@@ -123,6 +169,88 @@ export async function initializeComposer({ onScheduled } = {}) {
         : 'Media selected, but provider publishing requires a public HTTPS URL.';
     }
     return true;
+  }
+
+  function resetTikTokCapabilities({ hide = true } = {}) {
+    tiktokCapabilityRequest += 1;
+    if (tiktokPanel) tiktokPanel.hidden = hide;
+    if (tiktokIdentity) tiktokIdentity.textContent = '';
+    if (tiktokCapabilities) {
+      tiktokCapabilities.dataset.state = '';
+      tiktokCapabilities.textContent = '';
+    }
+    if (tiktokPrivacy) {
+      tiktokPrivacy.replaceChildren();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Select privacy level';
+      tiktokPrivacy.append(placeholder);
+      tiktokPrivacy.value = '';
+      tiktokPrivacy.disabled = true;
+    }
+    for (const control of [tiktokComment, tiktokDuet, tiktokStitch]) {
+      if (!control) continue;
+      control.checked = false;
+      control.disabled = true;
+    }
+  }
+
+  function applyTikTokCreatorInfo(info) {
+    const privacyLevelOptions = Array.isArray(info?.privacyLevelOptions) ? info.privacyLevelOptions : [];
+    if (tiktokPrivacy) {
+      tiktokPrivacy.replaceChildren();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Select privacy level';
+      tiktokPrivacy.append(placeholder);
+      for (const value of privacyLevelOptions) tiktokPrivacy.append(createPrivacyOption(String(value)));
+      tiktokPrivacy.value = '';
+      tiktokPrivacy.disabled = privacyLevelOptions.length === 0;
+    }
+    if (tiktokIdentity) {
+      tiktokIdentity.textContent = info?.creatorNickname
+        ? `Posting as ${info.creatorNickname}${info.creatorUsername ? ` (@${info.creatorUsername})` : ''}`
+        : 'TikTok creator connected.';
+    }
+    if (tiktokComment) tiktokComment.disabled = info?.commentDisabled === true;
+    if (tiktokDuet) tiktokDuet.disabled = info?.duetDisabled === true;
+    if (tiktokStitch) tiktokStitch.disabled = info?.stitchDisabled === true;
+    const maximum = Number(info?.maxVideoPostDurationSec);
+    if (tiktokCapabilities) {
+      tiktokCapabilities.dataset.state = privacyLevelOptions.length ? 'success' : 'warning';
+      tiktokCapabilities.textContent = privacyLevelOptions.length
+        ? `Current TikTok publishing options loaded${Number.isFinite(maximum) ? `. Maximum video duration: ${maximum} seconds.` : '.'}`
+        : 'TikTok returned no available privacy options for this creator.';
+    }
+  }
+
+  async function refreshTikTokCapabilities() {
+    const accountId = String(tiktokAccount?.value ?? '').trim();
+    const active = tiktokCheckbox?.checked === true && Boolean(accountId);
+    if (!active) {
+      resetTikTokCapabilities();
+      return;
+    }
+    const requestId = ++tiktokCapabilityRequest;
+    if (tiktokPanel) tiktokPanel.hidden = false;
+    if (tiktokCapabilities) {
+      tiktokCapabilities.dataset.state = '';
+      tiktokCapabilities.textContent = 'Loading current TikTok publishing options…';
+    }
+    if (tiktokPrivacy) tiktokPrivacy.disabled = true;
+    try {
+      const result = await getTikTokCreatorInfo(accountId);
+      if (requestId !== tiktokCapabilityRequest || tiktokAccount?.value !== accountId || tiktokCheckbox?.checked !== true) return;
+      applyTikTokCreatorInfo(result?.creatorInfo);
+    } catch (error) {
+      console.error(error);
+      if (requestId !== tiktokCapabilityRequest) return;
+      resetTikTokCapabilities({ hide: false });
+      if (tiktokCapabilities) {
+        tiktokCapabilities.dataset.state = 'error';
+        tiktokCapabilities.textContent = 'Unable to load current TikTok publishing options. Reconnect the account or try again.';
+      }
+    }
   }
 
   uploadButton?.addEventListener('click', async () => {
@@ -155,6 +283,9 @@ export async function initializeComposer({ onScheduled } = {}) {
 
   setDefaultSchedule(scheduleInput);
   focusButton?.addEventListener('click', () => document.querySelector('#post-caption')?.focus());
+  tiktokCheckbox?.addEventListener('change', refreshTikTokCapabilities);
+  tiktokAccount?.addEventListener('change', refreshTikTokCapabilities);
+  resetTikTokCapabilities();
 
   let accounts = [];
   async function refreshAccounts() {
@@ -162,6 +293,7 @@ export async function initializeComposer({ onScheduled } = {}) {
       const result = await listAccounts();
       accounts = Array.isArray(result?.accounts) ? result.accounts : [];
       applyAccountAvailability(accounts);
+      await refreshTikTokCapabilities();
       return accounts;
     } catch (error) {
       console.error(error);
@@ -192,6 +324,7 @@ export async function initializeComposer({ onScheduled } = {}) {
       }
       setDefaultSchedule(scheduleInput);
       applyAccountAvailability(accounts);
+      resetTikTokCapabilities();
       await onScheduled?.();
     } catch (error) {
       feedback.dataset.state = 'error';
