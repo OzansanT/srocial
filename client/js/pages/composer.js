@@ -26,6 +26,11 @@ function localDateTimeValue(value) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
+function notifyComposerInput(form) {
+  if (typeof form?.dispatchEvent !== 'function') return;
+  form.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function formatError(error) {
   const details = error?.payload?.details;
   if (Array.isArray(details) && details.length) return details.map((item) => item.message).join(' ');
@@ -210,7 +215,7 @@ export async function initializeComposer({ onScheduled } = {}) {
         ? 'Media selected from library.'
         : 'Media selected, but provider publishing requires a public HTTPS URL.';
     }
-    form.dispatchEvent(new Event('input', { bubbles: true }));
+    notifyComposerInput(form);
     return true;
   }
 
@@ -315,7 +320,7 @@ export async function initializeComposer({ onScheduled } = {}) {
       mediaType.value = media.type;
       uploadFeedback.dataset.state = media.state;
       uploadFeedback.textContent = media.message;
-      form.dispatchEvent(new Event('input', { bubbles: true }));
+      notifyComposerInput(form);
     } catch (error) {
       uploadFeedback.dataset.state = 'error';
       uploadFeedback.textContent = UPLOAD_ERRORS[error?.payload?.error] || 'Unable to upload this file. Please try again.';
