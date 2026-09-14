@@ -82,7 +82,7 @@ test('publishes TikTok video with user-selected privacy and interactions', async
   });
 });
 
-test('publishes TikTok photo through content init', async () => {
+test('publishes TikTok photo through content init using documented photo fields only', async () => {
   const { publishing, calls } = adapter({ media:[{ type:'image', url:'https://media.example/photo.webp' }] });
   const result = await publishing.publish({
     post:{ id:'post-1', caption:'Photo description' },
@@ -91,7 +91,7 @@ test('publishes TikTok photo through content init', async () => {
   assert.deepEqual(result, { status:'PROCESSING', externalId:'photo-publish-1' });
   assert.equal(calls[1].path, '/v2/post/publish/content/init/');
   assert.deepEqual(calls[1].options.body, {
-    media_type:'PHOTO', post_mode:'DIRECT_POST', is_aigc:false,
+    media_type:'PHOTO', post_mode:'DIRECT_POST',
     post_info:{
       description:'Photo description', privacy_level:'MUTUAL_FOLLOW_FRIENDS',
       disable_comment:false, brand_content_toggle:false, brand_organic_toggle:false
