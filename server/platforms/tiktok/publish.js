@@ -54,7 +54,6 @@ function photoBody(caption, mediaUrl, options) {
   return {
     media_type: 'PHOTO',
     post_mode: 'DIRECT_POST',
-    is_aigc: options.isAigc,
     post_info: {
       description: caption,
       privacy_level: options.privacyLevel,
