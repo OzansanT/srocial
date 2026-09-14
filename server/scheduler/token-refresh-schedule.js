@@ -2,8 +2,8 @@ import { JOB_STATES } from './job-states.js';
 import { JOB_TYPES } from './job-types.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_REFRESH_DELAY_MS = 60 * 1000;
 const DEFAULT_REFRESH_LEAD_MS = 30 * DAY_MS;
-const MIN_TOKEN_AGE_MS = DAY_MS;
 const REUSABLE_STATES = new Set([JOB_STATES.SCHEDULED, JOB_STATES.RETRYING]);
 
 function parseTime(value) {
@@ -17,10 +17,12 @@ export function getNextTokenRefreshAt(account, { now = new Date(), refreshLeadMs
   const expiresMs = parseTime(account.tokenExpiresAt);
   if (expiresMs === null || expiresMs <= nowMs) return null;
 
-  const connectedMs = parseTime(account.connectedAt);
-  const minimumRefreshMs = connectedMs === null ? nowMs : connectedMs + MIN_TOKEN_AGE_MS;
+  const remainingMs = expiresMs - nowMs;
+  const minimumDelayMs = remainingMs > DAY_MS
+    ? DAY_MS
+    : Math.max(MIN_REFRESH_DELAY_MS, Math.floor(remainingMs / 2));
   const desiredMs = expiresMs - Math.max(0, Number(refreshLeadMs) || DEFAULT_REFRESH_LEAD_MS);
-  const targetMs = Math.max(nowMs, minimumRefreshMs, desiredMs);
+  const targetMs = Math.max(nowMs + minimumDelayMs, desiredMs);
   if (targetMs >= expiresMs) return null;
   return new Date(targetMs);
 }
