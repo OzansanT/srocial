@@ -1,6 +1,7 @@
 import { getSession, logout } from './api/auth-api.js';
 import { getDashboard, getHealth } from './api/dashboard-api.js';
 import { initializeAccounts } from './pages/accounts.js';
+import { initAnalyticsPage } from './pages/analytics.js';
 import { initializeComposer } from './pages/composer.js';
 import { initializeComposerWorkflows } from './pages/composer-workflows.js';
 import { initializeMediaLibrary } from './pages/media-library.js';
@@ -67,6 +68,7 @@ async function bootstrap() {
   initializeMediaLibrary({ onUseMedia: composer.useMedia });
   initializeWhatsApp();
   initializeOperations();
+  await initAnalyticsPage();
   queueCalendar = initializeQueueCalendar({ onChanged: refreshDashboardOnly });
 
   try {
