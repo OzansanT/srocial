@@ -94,8 +94,11 @@ async function waitForHealth({ baseUrl, child, getLogs }) {
   throw error;
 }
 
-export async function startSrocialE2EServer({ seedAccounts = [] } = {}) {
+export async function startSrocialE2EServer({ seedAccounts = [], seedData = {} } = {}) {
   if (!Array.isArray(seedAccounts)) throw new Error('E2E_SEED_ACCOUNTS_INVALID');
+  if (!seedData || typeof seedData !== 'object' || Array.isArray(seedData)) {
+    throw new Error('E2E_SEED_DATA_INVALID');
+  }
 
   const fixtureDirectory = await mkdtemp(path.join(os.tmpdir(), 'srocial-e2e-'));
   const dataFile = path.join(fixtureDirectory, 'srocial.json');
@@ -104,12 +107,15 @@ export async function startSrocialE2EServer({ seedAccounts = [] } = {}) {
   let logs = '';
   let closed = false;
 
-  if (seedAccounts.length) {
-    await writeFile(
-      dataFile,
-      JSON.stringify({ accounts: structuredClone(seedAccounts) }, null, 2),
-      'utf8'
-    );
+  const initialData = structuredClone(seedData);
+  const seededAccounts = [
+    ...(Array.isArray(initialData.accounts) ? initialData.accounts : []),
+    ...structuredClone(seedAccounts)
+  ];
+  if (seededAccounts.length) initialData.accounts = seededAccounts;
+
+  if (Object.keys(initialData).length) {
+    await writeFile(dataFile, JSON.stringify(initialData, null, 2), 'utf8');
   }
 
   const env = {
