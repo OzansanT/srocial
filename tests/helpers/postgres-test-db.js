@@ -42,7 +42,7 @@ export async function preparePostgresTestSchema(schema) {
 }
 
 export async function clearPostgresRuntimeTables(pool) {
-  await pool.query('TRUNCATE TABLE scheduler_jobs, publications, media, posts, oauth_states, accounts RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE app_user_sessions, app_users, scheduler_jobs, publications, media, posts, oauth_states, accounts RESTART IDENTITY CASCADE');
 }
 
 export async function dropPostgresTestSchema(schema) {
