@@ -1,6 +1,6 @@
 import { readAppAuthConfig } from './app-auth-config.js';
-import { createAdminAuthenticator } from './admin-authenticator.js';
-import { createSessionCookieManager } from './session-cookie.js';
+import { createRepositorySessionManager } from './repository-session-manager.js';
+import { createUserService } from './user-service.js';
 import { createFixedWindowLimiter } from '../http/fixed-window-limiter.js';
 import { isSameOriginMutation } from '../http/request-origin.js';
 
@@ -8,7 +8,7 @@ function clientKey(request) {
   return String(request?.socket?.remoteAddress ?? 'unknown');
 }
 
-export function createAppAuth({ env = process.env, now = () => new Date() } = {}) {
+export function createAppAuth({ env = process.env, repository = null, now = () => new Date() } = {}) {
   if (typeof now !== 'function') throw new TypeError('now must be a function');
   const config = readAppAuthConfig(env);
 
@@ -17,17 +17,22 @@ export function createAppAuth({ env = process.env, now = () => new Date() } = {}
       enabled: false,
       username: config.username,
       publicOrigin: config.publicOrigin,
+      async initialize() {},
       consumeLogin() { return { allowed: true, retryAfterSeconds: 0, remaining: config.loginRateLimit.max }; },
-      login() { return { statusCode: 503, payload: { error: 'auth_not_configured' } }; },
-      readSession() { return null; },
+      async login() { return { statusCode: 503, payload: { error: 'auth_not_configured' } }; },
+      async readSession() { return null; },
+      async logout() { return { setCookie: null }; },
       issueLogoutCookie() { return null; },
       consumeApi() { return { allowed: true, retryAfterSeconds: 0, remaining: config.apiRateLimit.max }; },
       validateMutation() { return true; }
     });
   }
 
-  const authenticator = createAdminAuthenticator({ username: config.username, password: config.password });
-  const sessions = createSessionCookieManager({
+  if (!repository) throw new Error('APP_AUTH_REPOSITORY_REQUIRED');
+
+  const users = createUserService({ repository, now });
+  const sessions = createRepositorySessionManager({
+    repository,
     secret: config.sessionSecret,
     ttlSeconds: config.sessionTtlSeconds,
     secure: config.secureCookies,
@@ -47,28 +52,36 @@ export function createAppAuth({ env = process.env, now = () => new Date() } = {}
     username: config.username,
     publicOrigin: config.publicOrigin,
 
+    async initialize() {
+      await users.ensureBootstrapAdmin({ username: config.username, password: config.password });
+    },
+
     consumeLogin(request) {
       return loginLimiter.consume(clientKey(request));
     },
 
-    login(credentials = {}) {
-      if (!authenticator.authenticate(credentials?.username, credentials?.password)) {
-        return { statusCode: 401, payload: { error: 'invalid_credentials' } };
-      }
+    async login(credentials = {}) {
+      const user = await users.authenticate(credentials?.username, credentials?.password);
+      if (!user) return { statusCode: 401, payload: { error: 'invalid_credentials' } };
+      const issued = await sessions.issue(user.id);
       return {
         statusCode: 200,
         payload: { authenticated: true },
-        setCookie: sessions.issue(config.username)
+        setCookie: issued.cookie
       };
     },
 
     readSession(request) {
-      const session = sessions.read(request?.headers?.cookie ?? '');
-      return session?.username === config.username ? session : null;
+      return sessions.read(request?.headers?.cookie ?? '');
+    },
+
+    async logout(session) {
+      if (session?.sessionId) await sessions.revoke(session.sessionId);
+      return { setCookie: sessions.clearCookie() };
     },
 
     issueLogoutCookie() {
-      return sessions.clear();
+      return sessions.clearCookie();
     },
 
     consumeApi(request) {
