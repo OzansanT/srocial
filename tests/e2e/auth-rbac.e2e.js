@@ -12,12 +12,21 @@ const USERS = Object.freeze({
 });
 
 const LIFECYCLE_NEW_PASSWORD = 'Lifecycle-New-Password-456!';
+const HTTP_TIMEOUT_MS = 5_000;
+const TEST_TIMEOUT_MS = 30_000;
 
 let server;
 let browser;
 
 function js(value) {
   return JSON.stringify(value);
+}
+
+async function nodeFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    signal: options.signal ?? AbortSignal.timeout(HTTP_TIMEOUT_MS)
+  });
 }
 
 async function browserFetch(path, options = {}) {
@@ -80,7 +89,7 @@ after(async () => {
   await server?.close();
 });
 
-test('real browser redirects unauthenticated users and completes administrator login/logout', async () => {
+test('real browser redirects unauthenticated users and completes administrator login/logout', { timeout: TEST_TIMEOUT_MS }, async () => {
   await browser.navigate(`${server.baseUrl}/`);
   await browser.waitFor(`location.pathname === '/login.html'`);
 
@@ -91,7 +100,7 @@ test('real browser redirects unauthenticated users and completes administrator l
   await logout();
 });
 
-test('Admin creates Viewer Editor and Manager and real browser sessions enforce the RBAC matrix', async () => {
+test('Admin creates Viewer Editor and Manager and real browser sessions enforce the RBAC matrix', { timeout: TEST_TIMEOUT_MS }, async () => {
   await login(server.admin.username, server.admin.password);
   await createUser(USERS.viewer);
   await createUser(USERS.editor);
@@ -130,7 +139,7 @@ test('Admin creates Viewer Editor and Manager and real browser sessions enforce 
   await logout();
 });
 
-test('Admin user lifecycle changes and explicit session revocation work through the browser UI', async () => {
+test('Admin user lifecycle changes and explicit session revocation work through the browser UI', { timeout: TEST_TIMEOUT_MS }, async () => {
   await login(server.admin.username, server.admin.password);
   await createUser(USERS.lifecycle);
 
@@ -176,7 +185,7 @@ test('Admin user lifecycle changes and explicit session revocation work through 
   await login(server.admin.username, server.admin.password);
   await createUser(USERS.revoke);
 
-  const loginResponse = await fetch(`${server.baseUrl}/api/auth/login`, {
+  const loginResponse = await nodeFetch(`${server.baseUrl}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: USERS.revoke.username, password: USERS.revoke.password })
@@ -185,7 +194,7 @@ test('Admin user lifecycle changes and explicit session revocation work through 
   const sessionCookie = loginResponse.headers.get('set-cookie')?.split(';')[0];
   assert.ok(sessionCookie);
 
-  const activeResponse = await fetch(`${server.baseUrl}/api/auth/session`, { headers: { Cookie: sessionCookie } });
+  const activeResponse = await nodeFetch(`${server.baseUrl}/api/auth/session`, { headers: { Cookie: sessionCookie } });
   assert.equal(activeResponse.status, 200);
 
   await userCardAction(USERS.revoke.username, `(card) => {
@@ -194,7 +203,7 @@ test('Admin user lifecycle changes and explicit session revocation work through 
   }`);
   await browser.waitFor(`document.querySelector('#users-feedback')?.textContent === ${js(`Sessions revoked for ${USERS.revoke.username}.`)}`);
 
-  const revokedResponse = await fetch(`${server.baseUrl}/api/auth/session`, { headers: { Cookie: sessionCookie } });
+  const revokedResponse = await nodeFetch(`${server.baseUrl}/api/auth/session`, { headers: { Cookie: sessionCookie } });
   assert.equal(revokedResponse.status, 401);
 
   await logout();
