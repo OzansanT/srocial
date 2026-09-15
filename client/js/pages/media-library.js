@@ -126,8 +126,8 @@ export function initializeMediaLibrary({ onUseMedia } = {}) {
       deleteButton.disabled = true;
       try {
         await deleteMediaAsset(asset.key);
-        setFeedback('Media deleted.', 'success');
-        await refresh();
+        const payload = await refresh();
+        if (payload) setFeedback('Media deleted.', 'success');
       } catch (error) {
         const code = error?.payload?.error;
         setFeedback(MEDIA_LIBRARY_ERRORS[code] || 'Unable to delete this media file.', 'error');
