@@ -14,11 +14,17 @@ async function withServer(run) {
   const directory = await mkdtemp(join(tmpdir(), 'srocial-v18-api-'));
   const repository = createJsonRepository({ filePath: join(directory, 'data.json') });
   await repository.initialize();
+  const account = await repository.createAccount({
+    provider: 'facebook',
+    providerAccountId: 'facebook-page-1',
+    displayName: 'Facebook Test Page',
+    state: 'CONNECTED'
+  });
   const server = createServer(createRequestHandler({ repository, now: () => new Date(NOW) }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
-  try { await run({ base, repository }); }
+  try { await run({ base, repository, account }); }
   finally {
     server.close();
     await once(server, 'close');
@@ -27,18 +33,22 @@ async function withServer(run) {
   }
 }
 
-async function createPost(base, scheduledAt = '2026-09-14T15:00:00.000Z') {
+async function createPost(base, accountId, scheduledAt = '2026-09-14T15:00:00.000Z') {
   const response = await fetch(`${base}/api/posts`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ caption: 'Lifecycle', platforms: ['facebook'], scheduledAt })
+    body: JSON.stringify({
+      caption: 'Lifecycle',
+      destinations: [{ platform: 'facebook', accountId }],
+      scheduledAt
+    })
   });
   assert.equal(response.status, 201);
   return response.json();
 }
 
 test('GET /api/posts returns operation jobs and supports queue filters', async () => {
-  await withServer(async ({ base }) => {
-    await createPost(base);
+  await withServer(async ({ base, account }) => {
+    await createPost(base, account.id);
     const response = await fetch(`${base}/api/posts?platform=facebook&state=SCHEDULED&from=2026-09-14T00:00:00.000Z&until=2026-09-15T00:00:00.000Z`);
     assert.equal(response.status, 200);
     const payload = await response.json();
@@ -48,8 +58,8 @@ test('GET /api/posts returns operation jobs and supports queue filters', async (
 });
 
 test('PATCH post edits caption and reschedules publication/job together', async () => {
-  await withServer(async ({ base }) => {
-    const created = await createPost(base);
+  await withServer(async ({ base, account }) => {
+    const created = await createPost(base, account.id);
     const response = await fetch(`${base}/api/posts/${created.post.id}`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ caption: 'Updated', scheduledAt: '2026-09-15T16:00:00.000Z' })
@@ -63,8 +73,8 @@ test('PATCH post edits caption and reschedules publication/job together', async 
 });
 
 test('cancel and duplicate expose 200/201 lifecycle responses', async () => {
-  await withServer(async ({ base }) => {
-    const created = await createPost(base);
+  await withServer(async ({ base, account }) => {
+    const created = await createPost(base, account.id);
     const duplicate = await fetch(`${base}/api/posts/${created.post.id}/duplicate`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduledAt: '2026-09-16T10:00:00.000Z' })
@@ -79,8 +89,8 @@ test('cancel and duplicate expose 200/201 lifecycle responses', async () => {
 });
 
 test('failed publication can be retried and unsafe external-id retry returns 409', async () => {
-  await withServer(async ({ base, repository }) => {
-    const created = await createPost(base);
+  await withServer(async ({ base, repository, account }) => {
+    const created = await createPost(base, account.id);
     await repository.updatePublication(created.publications[0].id, { state: 'FAILED', errorCode: 'PROVIDER_ERROR' });
     await repository.updateJob(created.jobs[0].id, { state: 'FAILED', errorCode: 'PROVIDER_ERROR' });
 
@@ -100,9 +110,9 @@ test('failed publication can be retried and unsafe external-id retry returns 409
 });
 
 test('bulk cancel prevalidates and bulk reschedule updates selected posts', async () => {
-  await withServer(async ({ base, repository }) => {
-    const one = await createPost(base, '2026-09-14T15:00:00.000Z');
-    const two = await createPost(base, '2026-09-14T16:00:00.000Z');
+  await withServer(async ({ base, repository, account }) => {
+    const one = await createPost(base, account.id, '2026-09-14T15:00:00.000Z');
+    const two = await createPost(base, account.id, '2026-09-14T16:00:00.000Z');
 
     const reschedule = await fetch(`${base}/api/posts/bulk/reschedule`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -123,12 +133,12 @@ test('bulk cancel prevalidates and bulk reschedule updates selected posts', asyn
 });
 
 test('unknown post and invalid schedule map to safe 404/400 responses', async () => {
-  await withServer(async ({ base }) => {
+  await withServer(async ({ base, account }) => {
     const missing = await fetch(`${base}/api/posts/missing/cancel`, { method: 'POST' });
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'not_found' });
 
-    const created = await createPost(base);
+    const created = await createPost(base, account.id);
     const invalid = await fetch(`${base}/api/posts/${created.post.id}`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scheduledAt: 'bad' })
     });

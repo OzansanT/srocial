@@ -69,14 +69,14 @@ test('rejects a schedule that is not in the future', async () => {
   });
 });
 
-test('legacy platforms remain supported and create unbound publications', async () => {
+test('legacy compatibility opt-in creates unbound publications', async () => {
   const repository = createRepository();
   const result = await createScheduledPost(repository, {
     caption: '  New post  ',
     platforms: ['Instagram', 'threads', 'instagram'],
     media: [{ type: 'image', url: 'https://cdn.example.com/legacy.jpg' }],
     scheduledAt: future
-  }, { now });
+  }, { now, allowLegacyPlatforms: true });
   assert.equal(result.post.caption, 'New post');
   assert.deepEqual(result.publications.map((item) => item.platform), ['instagram', 'threads']);
   assert.ok(result.publications.every((item) => item.accountId === null));
