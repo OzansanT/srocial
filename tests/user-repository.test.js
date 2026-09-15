@@ -57,6 +57,23 @@ test('JSON repository persists users and resolves normalized usernames defensive
   });
 });
 
+test('JSON admin continuity serializes concurrent demotions and preserves one active admin', async () => {
+  await withRepository(async (repository) => {
+    const first = await repository.createUser(userRecord({ username: 'admin-one', usernameNormalized: 'admin-one' }));
+    const second = await repository.createUser(userRecord({ username: 'admin-two', usernameNormalized: 'admin-two' }));
+
+    const outcomes = await Promise.allSettled([
+      repository.updateUserWithAdminContinuity(first.id, { role: 'MANAGER', updatedAt: '2026-09-15T10:05:00.000Z' }),
+      repository.updateUserWithAdminContinuity(second.id, { role: 'MANAGER', updatedAt: '2026-09-15T10:05:00.000Z' })
+    ]);
+
+    assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 1);
+    assert.equal(outcomes.filter((item) => item.status === 'rejected' && item.reason?.message === 'LAST_ADMIN_FORBIDDEN').length, 1);
+    const users = await repository.listUsers();
+    assert.equal(users.filter((user) => user.role === 'ADMIN' && user.status === 'ACTIVE').length, 1);
+  });
+});
+
 test('JSON repository persists hashed sessions and supports single/all-session revocation', async () => {
   await withRepository(async (repository) => {
     const user = await repository.createUser(userRecord());
