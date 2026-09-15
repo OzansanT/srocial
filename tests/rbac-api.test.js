@@ -42,6 +42,12 @@ async function withServer(run) {
   await seedUser(repository, 'editor', 'EDITOR');
   await seedUser(repository, 'manager', 'MANAGER');
   await seedUser(repository, 'admin', 'ADMIN');
+  const account = await repository.createAccount({
+    provider: 'facebook',
+    providerAccountId: 'facebook-page-rbac',
+    displayName: 'RBAC Facebook Page',
+    state: 'CONNECTED'
+  });
   const now = () => NOW;
   const appAuth = createAppAuth({ env: ENV, repository, now });
   await appAuth.initialize();
@@ -49,7 +55,7 @@ async function withServer(run) {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
-    await run(`http://127.0.0.1:${server.address().port}`, repository);
+    await run(`http://127.0.0.1:${server.address().port}`, repository, account);
   } finally {
     server.close();
     await once(server, 'close');
@@ -72,15 +78,23 @@ function mutationHeaders(cookie) {
   return { cookie, origin: ENV.PUBLIC_BASE_URL, 'content-type': 'application/json', accept: 'application/json' };
 }
 
+function accountBoundPost(accountId, caption) {
+  return {
+    caption,
+    destinations: [{ platform: 'facebook', accountId }],
+    scheduledAt: '2026-09-16T10:00:00.000Z'
+  };
+}
+
 test('Viewer is read-only and cannot access Admin user management', async () => {
-  await withServer(async (base, repository) => {
+  await withServer(async (base, repository, account) => {
     const cookie = await login(base, 'viewer');
     assert.equal((await fetch(`${base}/api/dashboard`, { headers: { cookie } })).status, 200);
     assert.equal((await fetch(`${base}/api/users`, { headers: { cookie } })).status, 403);
 
     const create = await fetch(`${base}/api/posts`, {
       method: 'POST', headers: mutationHeaders(cookie),
-      body: JSON.stringify({ caption: 'blocked', platforms: ['facebook'], scheduledAt: '2026-09-16T10:00:00.000Z' })
+      body: JSON.stringify(accountBoundPost(account.id, 'blocked'))
     });
     assert.equal(create.status, 403);
     assert.deepEqual(await create.json(), { error: 'forbidden' });
@@ -88,14 +102,16 @@ test('Viewer is read-only and cannot access Admin user management', async () => 
   });
 });
 
-test('Editor may manage social content but cannot manage provider accounts', async () => {
-  await withServer(async (base) => {
+test('Editor may manage account-bound social content but cannot manage provider accounts', async () => {
+  await withServer(async (base, _repository, account) => {
     const cookie = await login(base, 'editor');
     const create = await fetch(`${base}/api/posts`, {
       method: 'POST', headers: mutationHeaders(cookie),
-      body: JSON.stringify({ caption: 'editor post', platforms: ['facebook'], scheduledAt: '2026-09-16T10:00:00.000Z' })
+      body: JSON.stringify(accountBoundPost(account.id, 'editor post'))
     });
     assert.equal(create.status, 201);
+    const created = await create.json();
+    assert.equal(created.publications[0].accountId, account.id);
 
     const oauth = await fetch(`${base}/api/oauth/instagram/start`, {
       method: 'POST', headers: mutationHeaders(cookie), body: '{}'
