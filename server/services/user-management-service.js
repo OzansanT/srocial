@@ -29,10 +29,6 @@ function isUsernameConflict(error) {
     || error?.constraint === 'app_users_username_normalized_key';
 }
 
-function isActiveAdmin(user) {
-  return user?.role === ROLES.ADMIN && user?.status === 'ACTIVE';
-}
-
 export function createUserManagementService({ repository, now = () => new Date() } = {}) {
   if (!repository) throw new Error('USER_REPOSITORY_REQUIRED');
   if (typeof now !== 'function') throw new TypeError('now must be a function');
@@ -41,17 +37,6 @@ export function createUserManagementService({ repository, now = () => new Date()
     const user = await repository.getUser(id);
     if (!user) throw new Error('USER_NOT_FOUND');
     return user;
-  }
-
-  async function assertAdminContinuity(target, nextRole, nextStatus, actorUserId) {
-    const demotesActiveAdmin = isActiveAdmin(target)
-      && (nextRole !== ROLES.ADMIN || nextStatus !== 'ACTIVE');
-    if (!demotesActiveAdmin) return;
-
-    if (target.id === actorUserId) throw new Error('SELF_LOCKOUT_FORBIDDEN');
-
-    const users = await repository.listUsers();
-    if (users.filter(isActiveAdmin).length <= 1) throw new Error('LAST_ADMIN_FORBIDDEN');
   }
 
   return Object.freeze({
@@ -102,10 +87,16 @@ export function createUserManagementService({ repository, now = () => new Date()
 
       const nextRole = patch.role ?? target.role;
       const nextStatus = patch.status ?? target.status;
-      await assertAdminContinuity(target, nextRole, nextStatus, actorUserId);
+      if (target.id === actorUserId && (nextRole !== ROLES.ADMIN || nextStatus !== 'ACTIVE')) {
+        throw new Error('SELF_LOCKOUT_FORBIDDEN');
+      }
 
       patch.updatedAt = now().toISOString();
-      const updated = await repository.updateUser(target.id, patch);
+      const affectsAccess = Object.prototype.hasOwnProperty.call(patch, 'role')
+        || Object.prototype.hasOwnProperty.call(patch, 'status');
+      const updated = affectsAccess
+        ? await repository.updateUserWithAdminContinuity(target.id, patch)
+        : await repository.updateUser(target.id, patch);
       if (!updated) throw new Error('USER_NOT_FOUND');
 
       if (target.status === 'ACTIVE' && updated.status === 'DISABLED') {
