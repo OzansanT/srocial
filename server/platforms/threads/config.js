@@ -1,6 +1,7 @@
 export const THREADS_SCOPES = Object.freeze([
   'threads_basic',
-  'threads_content_publish'
+  'threads_content_publish',
+  'threads_manage_insights'
 ]);
 
 function normalizeVersion(value, fallback = 'v1.0') {

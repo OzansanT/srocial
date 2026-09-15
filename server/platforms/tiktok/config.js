@@ -1,4 +1,4 @@
-const DEFAULT_SCOPES = Object.freeze(['user.info.basic', 'video.publish']);
+const DEFAULT_SCOPES = Object.freeze(['user.info.basic', 'video.publish', 'video.list']);
 
 export function getTikTokConfig(env = process.env) {
   const clientKey = String(env?.TIKTOK_CLIENT_KEY ?? '').trim();

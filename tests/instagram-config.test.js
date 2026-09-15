@@ -8,13 +8,21 @@ test('Instagram config is absent until both app credentials exist', () => {
   assert.equal(getInstagramConfig({ INSTAGRAM_APP_SECRET: 'secret' }), null);
 });
 
-test('Instagram config defaults to Graph API v26.0 and current publishing scopes', () => {
+test('Instagram config defaults to Graph API v26.0 and current publishing + analytics scopes', () => {
   const config = getInstagramConfig({ INSTAGRAM_APP_ID: '123', INSTAGRAM_APP_SECRET: 'secret' });
   assert.equal(config.appId, '123');
   assert.equal(config.appSecret, 'secret');
   assert.equal(config.apiVersion, 'v26.0');
-  assert.deepEqual(config.scopes, ['instagram_business_basic', 'instagram_business_content_publish']);
-  assert.deepEqual(INSTAGRAM_SCOPES, ['instagram_business_basic', 'instagram_business_content_publish']);
+  assert.deepEqual(config.scopes, [
+    'instagram_business_basic',
+    'instagram_business_content_publish',
+    'instagram_business_manage_insights'
+  ]);
+  assert.deepEqual(INSTAGRAM_SCOPES, [
+    'instagram_business_basic',
+    'instagram_business_content_publish',
+    'instagram_business_manage_insights'
+  ]);
 });
 
 test('Instagram config normalizes explicit API version', () => {

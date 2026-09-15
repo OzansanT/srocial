@@ -8,12 +8,15 @@ test('Threads config is absent until both app credentials exist', () => {
   assert.equal(getThreadsConfig({ THREADS_APP_SECRET: 'secret' }), null);
 });
 
-test('Threads config defaults to v1.0 and current publishing scopes', () => {
+test('Threads config defaults to v1.0 and current publishing + analytics scopes', () => {
   const config = getThreadsConfig({ THREADS_APP_ID: '123', THREADS_APP_SECRET: 'secret' });
   assert.deepEqual(config, {
-    appId: '123', appSecret: 'secret', apiVersion: 'v1.0', scopes: ['threads_basic', 'threads_content_publish']
+    appId: '123',
+    appSecret: 'secret',
+    apiVersion: 'v1.0',
+    scopes: ['threads_basic', 'threads_content_publish', 'threads_manage_insights']
   });
-  assert.deepEqual(THREADS_SCOPES, ['threads_basic', 'threads_content_publish']);
+  assert.deepEqual(THREADS_SCOPES, ['threads_basic', 'threads_content_publish', 'threads_manage_insights']);
 });
 
 test('Threads config normalizes explicit API version', () => {

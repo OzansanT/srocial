@@ -76,10 +76,10 @@ export function createTikTokClient({ fetchImpl = globalThis.fetch } = {}) {
     return request(apiUrl(path, query), { method: 'GET', headers });
   }
 
-  async function postApi(path, { accessToken, body = {} } = {}) {
+  async function postApi(path, { accessToken, query = {}, body = {} } = {}) {
     const headers = { accept: 'application/json', 'content-type': 'application/json' };
     if (accessToken) headers.authorization = `Bearer ${accessToken}`;
-    return request(apiUrl(path), { method: 'POST', headers, body: JSON.stringify(body) });
+    return request(apiUrl(path, query), { method: 'POST', headers, body: JSON.stringify(body) });
   }
 
   return { formPost, getApi, postApi };

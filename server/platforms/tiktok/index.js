@@ -1,5 +1,7 @@
+import { registerAnalyticsProvider } from '../../analytics/registry.js';
 import { registerOAuthProvider } from '../../auth/oauth-provider-registry.js';
 import { registerPlatform } from '../registry.js';
+import { createTikTokAnalyticsAdapter } from './analytics.js';
 import { createTikTokOAuthProvider } from './auth.js';
 import { createTikTokClient } from './client.js';
 import { getTikTokConfig } from './config.js';
@@ -12,7 +14,7 @@ function authError() {
   return error;
 }
 
-export function registerTikTokProvider({ env = process.env, oauthRegistry, platformRegistry, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
+export function registerTikTokProvider({ env = process.env, oauthRegistry, platformRegistry, analyticsRegistry = null, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
   const config = getTikTokConfig(env);
   if (!config) return { configured: false };
   if (!oauthRegistry || !platformRegistry || !repository) throw new Error('TIKTOK_RUNTIME_DEPENDENCIES_REQUIRED');
@@ -37,5 +39,6 @@ export function registerTikTokProvider({ env = process.env, oauthRegistry, platf
   });
   registerOAuthProvider(oauthRegistry, 'tiktok', oauthProvider);
   registerPlatform(platformRegistry, 'tiktok', publishingAdapter);
+  if (analyticsRegistry) registerAnalyticsProvider(analyticsRegistry, 'tiktok', createTikTokAnalyticsAdapter({ client, resolveCredentials }));
   return { configured: true, scopes: [...config.scopes] };
 }

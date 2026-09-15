@@ -1,5 +1,7 @@
+import { registerAnalyticsProvider } from '../../analytics/registry.js';
 import { registerOAuthProvider } from '../../auth/oauth-provider-registry.js';
 import { registerPlatform } from '../registry.js';
+import { createFacebookAnalyticsAdapter } from './analytics.js';
 import { createFacebookOAuthProvider } from './auth.js';
 import { createFacebookClient } from './client.js';
 import { getFacebookConfig } from './config.js';
@@ -12,7 +14,7 @@ function authError() {
   return error;
 }
 
-export function registerFacebookProvider({ env = process.env, oauthRegistry, platformRegistry, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
+export function registerFacebookProvider({ env = process.env, oauthRegistry, platformRegistry, analyticsRegistry = null, repository, cipher, fetchImpl = globalThis.fetch } = {}) {
   const config = getFacebookConfig(env);
   if (!config) return { configured: false };
   if (!oauthRegistry || !platformRegistry || !repository) throw new Error('FACEBOOK_RUNTIME_DEPENDENCIES_REQUIRED');
@@ -37,5 +39,6 @@ export function registerFacebookProvider({ env = process.env, oauthRegistry, pla
   });
   registerOAuthProvider(oauthRegistry, 'facebook', oauthProvider);
   registerPlatform(platformRegistry, 'facebook', publishingAdapter);
+  if (analyticsRegistry) registerAnalyticsProvider(analyticsRegistry, 'facebook', createFacebookAnalyticsAdapter({ client, resolveCredentials }));
   return { configured: true, apiVersion: config.apiVersion, scopes: [...config.scopes], pageId: config.pageId };
 }
