@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -94,12 +94,23 @@ async function waitForHealth({ baseUrl, child, getLogs }) {
   throw error;
 }
 
-export async function startSrocialE2EServer() {
+export async function startSrocialE2EServer({ seedAccounts = [] } = {}) {
+  if (!Array.isArray(seedAccounts)) throw new Error('E2E_SEED_ACCOUNTS_INVALID');
+
   const fixtureDirectory = await mkdtemp(path.join(os.tmpdir(), 'srocial-e2e-'));
+  const dataFile = path.join(fixtureDirectory, 'srocial.json');
   const port = await getFreePort();
   const baseUrl = `http://${HOST}:${port}`;
   let logs = '';
   let closed = false;
+
+  if (seedAccounts.length) {
+    await writeFile(
+      dataFile,
+      JSON.stringify({ accounts: structuredClone(seedAccounts) }, null, 2),
+      'utf8'
+    );
+  }
 
   const env = {
     ...process.env,
@@ -113,7 +124,7 @@ export async function startSrocialE2EServer() {
     LOGIN_RATE_LIMIT_MAX: '100',
     API_RATE_LIMIT_MAX: '5000',
     DATABASE_DRIVER: 'json',
-    DATA_FILE: path.join(fixtureDirectory, 'srocial.json'),
+    DATA_FILE: dataFile,
     MEDIA_STORAGE_DRIVER: 'local',
     MEDIA_UPLOAD_DIR: path.join(fixtureDirectory, 'media'),
     MEDIA_ORPHAN_CLEANUP_ENABLED: 'false',
