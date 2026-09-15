@@ -12,7 +12,7 @@ const config = {
 test('loads TikTok config only when client credentials are complete', () => {
   assert.equal(getTikTokConfig({ TIKTOK_CLIENT_KEY: 'key' }), null);
   assert.deepEqual(getTikTokConfig({ TIKTOK_CLIENT_KEY: 'key', TIKTOK_CLIENT_SECRET: 'secret' }), {
-    clientKey: 'key', clientSecret: 'secret', scopes: ['user.info.basic', 'video.publish']
+    clientKey: 'key', clientSecret: 'secret', scopes: ['user.info.basic', 'video.publish', 'video.list']
   });
 });
 
