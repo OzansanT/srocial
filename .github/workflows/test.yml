@@ -15,6 +15,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17
@@ -50,4 +51,4 @@ jobs:
       - name: Run browser E2E
         env:
           CHROME_PATH: /usr/bin/google-chrome
-        run: npm run test:e2e
+        run: timeout --signal=TERM --kill-after=5s 75s npm run test:e2e
