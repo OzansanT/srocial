@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+const ADMIN_CONTINUITY_LOCK = 93217021;
+
 function iso(value) {
   return value instanceof Date ? value.toISOString() : value;
 }
@@ -31,6 +33,30 @@ function mapSession(row) {
   };
 }
 
+const USER_UPDATE_COLUMNS = Object.freeze({
+  displayName: 'display_name',
+  role: 'role',
+  status: 'status',
+  passwordHash: 'password_hash',
+  updatedAt: 'updated_at'
+});
+
+function userUpdateStatement(id, patch = {}) {
+  const assignments = [];
+  const values = [];
+  for (const [key, column] of Object.entries(USER_UPDATE_COLUMNS)) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+    values.push(patch[key]);
+    assignments.push(`${column} = $${values.length}`);
+  }
+  if (assignments.length === 0) return null;
+  values.push(id);
+  return {
+    text: `UPDATE app_users SET ${assignments.join(', ')} WHERE id = $${values.length} RETURNING *`,
+    values
+  };
+}
+
 export function createPostgresUsers(pool) {
   return {
     async createUser(record) {
@@ -55,27 +81,52 @@ export function createPostgresUsers(pool) {
     },
 
     async updateUser(id, patch = {}) {
-      const columns = {
-        displayName: 'display_name',
-        role: 'role',
-        status: 'status',
-        passwordHash: 'password_hash',
-        updatedAt: 'updated_at'
-      };
-      const assignments = [];
-      const values = [];
-      for (const [key, column] of Object.entries(columns)) {
-        if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
-        values.push(patch[key]);
-        assignments.push(`${column} = $${values.length}`);
-      }
-      if (assignments.length === 0) return this.getUser(id);
-      values.push(id);
-      const result = await pool.query(
-        `UPDATE app_users SET ${assignments.join(', ')} WHERE id = $${values.length} RETURNING *`,
-        values
-      );
+      const statement = userUpdateStatement(id, patch);
+      if (!statement) return this.getUser(id);
+      const result = await pool.query(statement.text, statement.values);
       return mapUser(result.rows[0]);
+    },
+
+    async updateUserWithAdminContinuity(id, patch = {}) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(`SELECT pg_advisory_xact_lock(${ADMIN_CONTINUITY_LOCK})`);
+
+        const currentResult = await client.query('SELECT * FROM app_users WHERE id = $1 FOR UPDATE', [id]);
+        const current = mapUser(currentResult.rows[0]);
+        if (!current) {
+          await client.query('COMMIT');
+          return null;
+        }
+
+        const nextRole = Object.prototype.hasOwnProperty.call(patch, 'role') ? patch.role : current.role;
+        const nextStatus = Object.prototype.hasOwnProperty.call(patch, 'status') ? patch.status : current.status;
+        const removesActiveAdmin = current.role === 'ADMIN'
+          && current.status === 'ACTIVE'
+          && (nextRole !== 'ADMIN' || nextStatus !== 'ACTIVE');
+
+        if (removesActiveAdmin) {
+          const countResult = await client.query(
+            "SELECT COUNT(*)::int AS count FROM app_users WHERE role = 'ADMIN' AND status = 'ACTIVE'"
+          );
+          if (Number(countResult.rows[0]?.count ?? 0) <= 1) throw new Error('LAST_ADMIN_FORBIDDEN');
+        }
+
+        const statement = userUpdateStatement(id, patch);
+        if (!statement) {
+          await client.query('COMMIT');
+          return current;
+        }
+        const result = await client.query(statement.text, statement.values);
+        await client.query('COMMIT');
+        return mapUser(result.rows[0]);
+      } catch (error) {
+        try { await client.query('ROLLBACK'); } catch {}
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async getUser(id) {
