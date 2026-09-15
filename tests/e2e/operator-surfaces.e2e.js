@@ -282,13 +282,13 @@ test('real browser renders seeded Operations provider, failure, attempt and webh
 
 test('real browser renders and filters seeded Analytics snapshots', async () => {
   await browser.navigate(`${server.baseUrl}/#analytics`);
-  await browser.waitFor(`document.querySelector('#analytics-status')?.textContent.includes('1 posts')`);
-  await browser.waitFor(`document.querySelector('#analytics-posts')?.textContent.includes('V24 analytics browser post')`);
+  await browser.waitFor(`document.querySelector('#analyticsStatus')?.textContent.includes('1 posts')`);
+  await browser.waitFor(`document.querySelector('#analyticsPosts')?.textContent.includes('V24 analytics browser post')`);
 
   const report = await browser.evaluate(`({
-    kpis: document.querySelector('#analytics-kpis')?.textContent ?? '',
-    posts: document.querySelector('#analytics-posts')?.textContent ?? '',
-    status: document.querySelector('#analytics-status')?.textContent ?? ''
+    kpis: document.querySelector('#analyticsKpis')?.textContent ?? '',
+    posts: document.querySelector('#analyticsPosts')?.textContent ?? '',
+    status: document.querySelector('#analyticsStatus')?.textContent ?? ''
   })`);
   assert.match(report.kpis, /Views150/);
   assert.match(report.kpis, /Reach120/);
@@ -298,8 +298,8 @@ test('real browser renders and filters seeded Analytics snapshots', async () => 
   assert.match(report.posts, /V24 analytics browser post/);
   assert.match(report.status, /1 posts/);
 
-  await browser.fill('#analytics-platform', 'tiktok');
-  await browser.waitFor(`document.querySelector('#analytics-status')?.textContent.includes('No analytics snapshots for this filter.')`);
-  await browser.fill('#analytics-platform', 'facebook');
-  await browser.waitFor(`document.querySelector('#analytics-status')?.textContent.includes('1 posts')`);
+  await browser.fill('#analyticsPlatform', 'tiktok');
+  await browser.waitFor(`document.querySelector('#analyticsStatus')?.textContent.includes('No analytics snapshots for this filter.')`);
+  await browser.fill('#analyticsPlatform', 'facebook');
+  await browser.waitFor(`document.querySelector('#analyticsStatus')?.textContent.includes('1 posts')`);
 });
