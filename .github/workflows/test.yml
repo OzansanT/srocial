@@ -15,6 +15,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17
@@ -47,3 +48,7 @@ jobs:
         run: npm test
       - name: Check JavaScript syntax
         run: find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run browser E2E
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: timeout --signal=TERM --kill-after=5s 75s npm run test:e2e
