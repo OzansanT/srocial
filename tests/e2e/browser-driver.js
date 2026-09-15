@@ -330,6 +330,7 @@ export async function launchBrowser() {
     cdp = createCdpClient(socket);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+    await cdp.send('DOM.enable');
   } catch (error) {
     if (!error.cause && diagnostic.trim()) attachDiagnostic(error, diagnostic);
     await close();
@@ -411,6 +412,21 @@ export async function launchBrowser() {
     })()`);
   }
 
+  async function setFileInputFiles(selector, filePaths) {
+    if (!Array.isArray(filePaths) || filePaths.length === 0) {
+      throw new Error('E2E_FILE_PATHS_REQUIRED');
+    }
+    const files = filePaths.map((value) => String(value));
+    const { root } = await cdp.send('DOM.getDocument', { depth: 1, pierce: true });
+    const { nodeId } = await cdp.send('DOM.querySelector', {
+      nodeId: root.nodeId,
+      selector: String(selector)
+    });
+    if (!nodeId) throw new Error('E2E_FILE_INPUT_NOT_FOUND');
+    await cdp.send('DOM.setFileInputFiles', { nodeId, files });
+    return true;
+  }
+
   return Object.freeze({
     navigate,
     evaluate,
@@ -418,6 +434,7 @@ export async function launchBrowser() {
     fill,
     click,
     submit,
+    setFileInputFiles,
     close
   });
 }
