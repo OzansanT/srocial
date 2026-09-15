@@ -294,10 +294,16 @@ export async function launchBrowser() {
   }
 
   async function navigate(url) {
-    const loaded = cdp.waitForEvent('Page.loadEventFired', STARTUP_TIMEOUT_MS);
-    const result = await cdp.send('Page.navigate', { url: String(url) });
+    const targetUrl = String(url);
+    const previousUrl = await evaluate('location.href').catch(() => null);
+    const result = await cdp.send('Page.navigate', { url: targetUrl });
     if (result.errorText) throw new Error('E2E_NAVIGATION_FAILED');
-    await loaded;
+    await waitFor(`(() => {
+      if (document.readyState !== 'complete') return false;
+      const target = new URL(${serialize(targetUrl)}, location.href).href;
+      const previous = ${serialize(previousUrl)};
+      return location.href === target || previous === null || location.href !== previous;
+    })()`, { timeoutMs: STARTUP_TIMEOUT_MS });
     return result;
   }
 
