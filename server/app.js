@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requiredRoleForRequest } from './auth/authorization-policy.js';
+import { roleAtLeast } from './auth/roles.js';
 import { readJsonBody, RequestBodyError } from './http/read-json-body.js';
 import { readRawBody } from './http/read-raw-body.js';
 import { getHealthPayload } from './routes/health.js';
@@ -22,6 +24,7 @@ import { completeOAuthPayload, startOAuthPayload } from './routes/oauth.js';
 import { deleteMediaPayload, listMediaPayload } from './routes/media.js';
 import { getTikTokCreatorInfoPayload } from './routes/tiktok.js';
 import { getOperationsPayload } from './routes/operations.js';
+import { routeUserManagementRequest } from './routes/users.js';
 import {
   handleMetaChallenge,
   handleMetaWebhook,
@@ -215,6 +218,13 @@ export function createRequestHandler({
         if (isMutation(request.method) && !appAuth.validateMutation(request)) {
           return sendJson(response, 403, { error: 'cross_site_request' });
         }
+
+        if (isApiRequest(url.pathname)) {
+          const requiredRole = requiredRoleForRequest(request.method, url.pathname);
+          if (!roleAtLeast(applicationSession.user?.role, requiredRole)) {
+            return sendJson(response, 403, { error: 'forbidden' });
+          }
+        }
       }
 
       if (request.method === 'POST' && url.pathname === '/api/webhooks/meta') {
@@ -259,6 +269,17 @@ export function createRequestHandler({
         if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
         const logout = await appAuth.logout(applicationSession);
         return sendJson(response, 200, { authenticated: false }, { 'set-cookie': logout.setCookie });
+      }
+
+      if (appAuth?.enabled) {
+        const usersResult = await routeUserManagementRequest({
+          request,
+          pathname: url.pathname,
+          repository,
+          actorUserId: applicationSession?.user?.id ?? null,
+          now: now()
+        });
+        if (usersResult) return sendJson(response, usersResult.statusCode, usersResult.payload);
       }
 
       if (request.method === 'GET' && url.pathname === '/api/health') {
