@@ -219,7 +219,8 @@ test('real browser manages deterministic account state without live OAuth', asyn
   assert.equal(accounts.status, 200);
   assert.equal(accounts.body.accounts.find((account) => account.id === FACEBOOK_ACCOUNT.id)?.state, 'DISCONNECTED');
 
-  await browser.navigate(`${server.baseUrl}/?oauth=facebook&status=connected#accounts`);
+  const oauthResultUrl = `${server.baseUrl}/?oauth=facebook&status=connected#accounts`;
+  await browser.evaluate(`(() => { location.assign(${JSON.stringify(oauthResultUrl)}); return true; })()`);
   await browser.waitFor(`document.querySelector('#accounts-feedback')?.textContent === 'Facebook connected successfully.'`);
   const cleaned = await browser.evaluate(`({ search: location.search, hash: location.hash })`);
   assert.equal(cleaned.search, '');
