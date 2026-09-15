@@ -301,12 +301,18 @@ export async function launchBrowser() {
   async function close() {
     if (closed) return;
     closed = true;
+    cdp?.close();
+    if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) socket.close();
+    await stopChild(chrome);
     try {
-      cdp?.close();
-      if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) socket.close();
-      await stopChild(chrome);
-    } finally {
-      await rm(profileDirectory, { recursive: true, force: true });
+      await rm(profileDirectory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100
+      });
+    } catch {
+      // The profile is test-only temporary state; runner/process cleanup may finish a late Chrome writer.
     }
   }
 
