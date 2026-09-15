@@ -191,7 +191,7 @@ export function createRequestHandler({
           return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(loginLimit.retryAfterSeconds) });
         }
         const body = await readJsonBody(request);
-        const result = appAuth.login(body);
+        const result = await appAuth.login(body);
         const headers = {};
         if (result.setCookie) headers['set-cookie'] = result.setCookie;
         return sendJson(response, result.statusCode, result.payload, headers);
@@ -199,7 +199,7 @@ export function createRequestHandler({
 
       let applicationSession = null;
       if (appAuth?.enabled && !isPublicRoute(request.method, url.pathname)) {
-        applicationSession = appAuth.readSession(request);
+        applicationSession = await appAuth.readSession(request);
         if (!applicationSession) {
           if (isApiRequest(url.pathname)) return sendJson(response, 401, { error: 'unauthorized' });
           return sendRedirect(response, '/login.html');
@@ -252,12 +252,13 @@ export function createRequestHandler({
 
       if (request.method === 'GET' && url.pathname === '/api/auth/session' && appAuth) {
         if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
-        return sendJson(response, 200, { authenticated: true, user: { username: applicationSession.username } });
+        return sendJson(response, 200, { authenticated: true, user: applicationSession.user });
       }
 
       if (request.method === 'POST' && url.pathname === '/api/auth/logout' && appAuth) {
         if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
-        return sendJson(response, 200, { authenticated: false }, { 'set-cookie': appAuth.issueLogoutCookie() });
+        const logout = await appAuth.logout(applicationSession);
+        return sendJson(response, 200, { authenticated: false }, { 'set-cookie': logout.setCookie });
       }
 
       if (request.method === 'GET' && url.pathname === '/api/health') {
