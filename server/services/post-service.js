@@ -220,11 +220,19 @@ async function validateDestinationAccounts(repository, destinations) {
   return validated;
 }
 
-export async function createScheduledPost(repository, input, { now = new Date() } = {}) {
+export async function createScheduledPost(repository, input, { now = new Date(), allowLegacyPlatforms = false } = {}) {
   const destinations = normalizeDestinations(input?.destinations);
   const platforms = normalizePlatforms(input?.platforms);
   const mediaInput = normalizeMedia(input?.media);
   const validated = validateBaseInput(input, now, destinations, platforms, mediaInput);
+
+  if (!validated.usesDestinations && allowLegacyPlatforms !== true) {
+    throw new ValidationError([{
+      field: 'destinations',
+      message: 'Account-bound destinations are required. Legacy platforms-only scheduling is disabled.'
+    }]);
+  }
+
   const resolvedDestinations = validated.usesDestinations
     ? await validateDestinationAccounts(repository, destinations)
     : platforms.map((platform) => ({ platform, accountId: null, options: {}, captionOverride: null, mediaOverride: null }));
