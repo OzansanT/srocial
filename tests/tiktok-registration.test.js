@@ -18,7 +18,7 @@ test('TikTok provider registers OAuth and publishing adapters when configured', 
   const cipher={ decrypt(value){return value;} };
   const result=registerTikTokProvider({ env, oauthRegistry, platformRegistry, repository, cipher, fetchImpl:async()=>{throw new Error('network should not run');} });
   assert.equal(result.configured, true);
-  assert.deepEqual(result.scopes, ['user.info.basic','video.publish']);
+  assert.deepEqual(result.scopes, ['user.info.basic','video.publish','video.list']);
   assert.equal(typeof oauthRegistry.get('tiktok')?.exchangeCode, 'function');
   assert.equal(typeof platformRegistry.get('tiktok')?.publish, 'function');
   assert.equal(typeof platformRegistry.get('tiktok')?.getCreatorInfo, 'function');
