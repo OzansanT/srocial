@@ -32,6 +32,20 @@ test('queue/calendar page uses lifecycle APIs, calendar primitives, drag resched
   assert.doesNotMatch(page, /innerHTML/);
 });
 
+test('bulk lifecycle handlers clear selection before mutation refresh renders the queue', () => {
+  const cancelHandler = page.match(/elements\.bulkCancel\?\.addEventListener\('click',[\s\S]*?\n  \}\);/)?.[0] ?? '';
+  const rescheduleHandler = page.match(/elements\.bulkReschedule\?\.addEventListener\('click',[\s\S]*?\n  \}\);/)?.[0] ?? '';
+
+  for (const handler of [cancelHandler, rescheduleHandler]) {
+    assert.ok(handler, 'bulk handler source should be present');
+    const clearIndex = handler.indexOf('state.selected.clear();');
+    const mutateIndex = handler.indexOf('await mutate(');
+    assert.ok(clearIndex >= 0, 'bulk handler should clear the selected set');
+    assert.ok(mutateIndex >= 0, 'bulk handler should run a lifecycle mutation');
+    assert.ok(clearIndex < mutateIndex, 'selection must clear before mutation-triggered refresh renders checkbox state');
+  }
+});
+
 test('queue/calendar stylesheet includes responsive calendar and selection layouts', () => {
   assert.match(css, /\.calendar-grid/);
   assert.match(css, /\.queue-toolbar/);

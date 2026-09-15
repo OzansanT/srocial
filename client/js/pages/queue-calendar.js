@@ -369,8 +369,12 @@ export function initializeQueueCalendar({ onChanged = null } = {}) {
   elements.bulkCancel?.addEventListener('click', async () => {
     const ids = [...state.selected];
     if (!ids.length) return;
-    await mutate(() => bulkCancelPosts(ids), `${ids.length} selected post${ids.length === 1 ? '' : 's'} cancelled.`);
     state.selected.clear();
+    const changed = await mutate(() => bulkCancelPosts(ids), `${ids.length} selected post${ids.length === 1 ? '' : 's'} cancelled.`);
+    if (!changed) {
+      for (const id of ids) state.selected.add(id);
+      renderQueue();
+    }
   });
 
   elements.bulkReschedule?.addEventListener('click', async () => {
@@ -379,8 +383,12 @@ export function initializeQueueCalendar({ onChanged = null } = {}) {
     let scheduledAt;
     try { scheduledAt = inputToIso(elements.bulkTime?.value); }
     catch (error) { setFeedback(error.message, 'error'); return; }
-    await mutate(() => bulkReschedulePosts(ids, scheduledAt), `${ids.length} selected post${ids.length === 1 ? '' : 's'} rescheduled.`);
     state.selected.clear();
+    const changed = await mutate(() => bulkReschedulePosts(ids, scheduledAt), `${ids.length} selected post${ids.length === 1 ? '' : 's'} rescheduled.`);
+    if (!changed) {
+      for (const id of ids) state.selected.add(id);
+      renderQueue();
+    }
   });
 
   const ready = Promise.all([loadAccounts(), refresh()]);

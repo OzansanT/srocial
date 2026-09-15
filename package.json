@@ -7,7 +7,7 @@
     "start": "node server/server.js",
     "db:migrate": "node server/db/migrate.js",
     "test": "node --test",
-    "test:e2e": "node --test tests/e2e/*.e2e.js"
+    "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.e2e.js"
   },
   "dependencies": {
     "pg": "^8.16.3"
