@@ -4,7 +4,7 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, analyt
 
 Instagram, Facebook Pages, Threads, and TikTok share the social publishing and analytics runtime. WhatsApp Business is intentionally a separate contacts/templates/campaign subsystem that reuses the same repository, scheduler infrastructure, verified-webhook layer, and Operations Center.
 
-## Current Status — V21
+## Current Status — V22
 
 The runnable foundation now includes:
 
@@ -23,6 +23,7 @@ The runnable foundation now includes:
 - salted `scrypt` password hashing and opaque revocable HttpOnly application sessions whose raw tokens are never persisted;
 - centralized server-side RBAC, same-origin mutation protection, atomic last-active-Admin protection, and process-local rate limiting;
 - Admin user creation, role/status management, password rotation, session revocation, and immediate disabled-user invalidation;
+- real headless-Chrome CI coverage for unauthenticated redirect, login/logout, Viewer/Editor/Manager/Admin authorization boundaries, Admin Users lifecycle actions, password rotation, disabled-user denial, and explicit session revocation;
 - publication-attempt history, verified Meta/TikTok/WhatsApp webhooks, provider health, and active rate-limit visibility;
 - WhatsApp Business contacts with explicit consent/eligibility, approved-template synchronization, scheduled campaigns, recipient/message state, and duplicate-send-safe execution;
 - month/week/day social publishing calendar with Previous/Today/Next navigation;
@@ -37,7 +38,7 @@ The runnable foundation now includes:
 - normalized Analytics KPIs for views/reach/likes/comments/shares/saves when providers support them;
 - date/platform/account Analytics filtering, daily series, per-post performance, freshness visibility, and bounded/manual refresh;
 - protected Operations, Analytics, WhatsApp, post-lifecycle, composer-workflow, and user-management APIs plus browser UI;
-- GitHub Actions coverage against PostgreSQL 17.
+- GitHub Actions coverage against PostgreSQL 17 plus a separate bounded real-browser Chrome gate.
 
 Safe execution defaults remain:
 
@@ -129,7 +130,8 @@ Provider-specific behavior remains inside provider/messaging modules. SQL stays 
 - **Media:** local filesystem or S3-compatible object storage
 - **Passwords:** salted Node.js `scrypt`
 - **Sessions:** opaque random HttpOnly cookie token; persistence stores only a derived token hash
-- **CI:** GitHub Actions + PostgreSQL 17
+- **Browser E2E:** Node.js 22 built-ins + installed headless Chrome over the Chrome DevTools Protocol
+- **CI:** GitHub Actions + PostgreSQL 17 + bounded Chrome E2E gate
 
 ## Install and Run
 
@@ -150,10 +152,16 @@ Default local URL:
 http://127.0.0.1:3000
 ```
 
-Run tests:
+Run deterministic tests:
 
 ```bash
 npm test
+```
+
+Run real-browser tests when Chrome/Chromium is installed:
+
+```bash
+npm run test:e2e
 ```
 
 For PostgreSQL, run migrations before startup:
@@ -204,6 +212,18 @@ WHATSAPP_GRAPH_API_VERSION=v26.0
 ```
 
 Srocial does not automatically load `.env` files. Supply values through the shell, process manager, container, or deployment environment. Provider credentials, bootstrap administrator credentials, encryption keys, app/session secrets, database credentials, object-storage credentials, and WhatsApp access tokens are server-only.
+
+## Browser E2E Foundation — V22
+
+V22 adds a separate real-browser CI gate without adding Playwright, Puppeteer, Selenium, or another runtime dependency. Node.js launches the real Srocial server against isolated temporary JSON/media storage and controls installed headless Chrome directly through CDP/WebSocket.
+
+The E2E runtime enables application authentication but explicitly keeps every execution gate off. It uses fixture-only credentials, adds no production test endpoint, and cannot publish social posts or send WhatsApp messages.
+
+Current real-browser coverage includes unauthenticated redirect, Admin login/logout, role-appropriate Users visibility, server-side Viewer/Editor/Manager/Admin permission boundaries, Admin user creation/update, role changes, password rotation, disabled-user login denial, and explicit session revocation.
+
+`SR-P001` is therefore `PARTIAL`, not resolved. Account management, Media Library, V19 Composer workflows, scheduling, Queue/Calendar, WhatsApp, Operations, and V20 Analytics still require actual browser coverage.
+
+See `docs/V22_BROWSER_E2E.md`.
 
 ## Application Authentication & RBAC — V21
 
@@ -498,13 +518,16 @@ npm install --ignore-scripts
 npm run db:migrate
 npm test
 find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
+timeout --signal=TERM --kill-after=5s 75s npm run test:e2e
 ```
 
-V21 implementation exact-head run `34962708457` passed **446/446 tests**, applied migrations through `009_users_roles.sql`, and passed JavaScript syntax checks. Release-document changes require a fresh exact-head run before PR/merge.
+V22 implementation exact-head run `34967247398` passed **446/446 Node tests**, applied migrations through `009_users_roles.sql`, passed JavaScript syntax, and passed all **3/3 real-Chrome E2E scenarios**. Documentation/tracker promotion is followed by a fresh exact-head release run before PR/merge.
 
-Coverage includes persisted authentication/session bootstrap and revocation; Viewer/Editor/Manager/Admin authorization; JSON/PostgreSQL user/session parity; concurrent last-active-Admin protection; Admin Users browser-module contracts; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature/webhook/provider telemetry; V17 WhatsApp behavior; V18 atomic schedule/lifecycle/calendar/queue behavior; V19 drafts/reusable resources/overrides/compatibility/previews; and V20 JSON/PostgreSQL analytics persistence, latest-snapshot aggregation, provider normalization/scopes, protected analytics API behavior, refresh safety/bounds, and Analytics UI wiring.
+Deterministic coverage includes persisted authentication/session bootstrap and revocation; Viewer/Editor/Manager/Admin authorization; JSON/PostgreSQL user/session parity; concurrent last-active-Admin protection; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature/webhook/provider telemetry; V17 WhatsApp behavior; V18 atomic schedule/lifecycle/calendar/queue behavior; V19 drafts/reusable resources/overrides/compatibility/previews; and V20 JSON/PostgreSQL analytics persistence, latest-snapshot aggregation, provider normalization/scopes, protected analytics API behavior, refresh safety/bounds, and Analytics UI wiring.
 
-Real-provider and browser-E2E verification gaps remain in `PROBLEMS.md`. Automated CI cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, actual browser interaction testing, provider analytics permissions/metric availability, or a multi-instance shared rate limiter.
+Real-browser V22 coverage now independently exercises login/logout, role-specific UI visibility, authoritative server `403` boundaries, and Admin user lifecycle/session-revocation behavior. Remaining actual-browser coverage is tracked under `SR-P001` as `PARTIAL`, while real-provider verification stays in the provider-specific `VERIFY` items.
+
+Automated CI still cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, provider analytics permissions/metric availability, or a multi-instance shared rate limiter.
 
 ## Repository Structure
 
@@ -550,6 +573,10 @@ srocial/
 |  |- services/
 |  `- webhooks/
 |- tests/
+|  `- e2e/
+|     |- auth-rbac.e2e.js
+|     |- browser-driver.js
+|     `- srocial-server.js
 |- docs/
 |  |- V12_MEDIA_STORAGE.md
 |  |- V13_INSTAGRAM_TOKEN_REFRESH.md
@@ -560,23 +587,25 @@ srocial/
 |  |- V18_CALENDAR_QUEUE.md
 |  |- V19_DRAFTS_COMPOSER.md
 |  |- V20_ANALYTICS_REPORTING.md
-|  `- V21_USERS_ROLES.md
+|  |- V21_USERS_ROLES.md
+|  `- V22_BROWSER_E2E.md
 |- .env.example
 `- package.json
 ```
 
 ## Development Direction
 
-V21 closes source roadmap item **100 — Users / Roles** with persisted identities, Admin/Manager/Creator-Editor/Viewer authorization, revocable sessions, Admin user management, and migration from the existing environment-bootstrap administrator model. Source item 100 is the final major product feature in the supplied source feature list. Source items 91–97 substantially overlap the already-implemented V16 Operations Center; item 98 is V20 Analytics; item 99 is V17 WhatsApp Business.
+V21 closed source roadmap item **100 — Users / Roles**. Item 100 is the final major product feature in the supplied source feature list. Source items 91–97 substantially overlap the already-implemented V16 Operations Center; item 98 is V20 Analytics; item 99 is V17 WhatsApp Business. V22 therefore begins post-roadmap production-readiness work rather than inventing a source item 101.
 
-The next development should therefore be production-readiness work driven by `PROBLEMS.md`, not an invented source feature:
+V22 partially closes `SR-P001` with a real-browser CI foundation and verified authentication/RBAC/Admin-user/session-revocation flows. The next development should extend that same browser harness across the most critical content-operator workflow before moving to lower-priority architectural debt:
 
-1. **Browser E2E & role verification (`SR-P001`)** — add a real-browser CI suite covering Viewer/Editor/Manager/Admin login/access boundaries and Admin Users workflows, then extend the suite across existing critical operator flows;
-2. **Legacy scheduling cleanup (`SR-P007`)** — decide whether platform-only unbound publication compatibility is still required and migrate/remove it if not;
-3. **Distributed/trusted-proxy rate limiting (`SR-P006`)** — add a shared limiter and explicit trusted-proxy client attribution before multi-instance/proxy-fronted production deployment;
-4. **Live provider verification (`SR-P002`, `SR-P003`, `SR-P004`, `SR-P010`)** — complete approved-app/provider checks where real credentials and public callbacks are available.
+1. **V23 — Browser E2E Critical Content Workflow (`SR-P001`)** — cover V19 draft autosave/recovery/conflict/resources/overrides/previews/compatibility, media upload/library, social scheduling, and Queue/Calendar lifecycle in real Chrome;
+2. **remaining browser surfaces (`SR-P001`)** — Accounts/OAuth management, WhatsApp, Operations, and Analytics where deterministic fixture coverage is possible without pretending to verify live providers;
+3. **Legacy scheduling cleanup (`SR-P007`)** — decide whether platform-only unbound publication compatibility is still required and migrate/remove it if not;
+4. **Distributed/trusted-proxy rate limiting (`SR-P006`)** — add a shared limiter and explicit trusted-proxy client attribution before multi-instance/proxy-fronted production deployment;
+5. **Live provider verification (`SR-P002`, `SR-P003`, `SR-P004`, `SR-P010`)** — complete approved-app/provider checks where real credentials and public callbacks are available.
 
-The historical source roadmap's version labels diverged from live implementation order. Live V18 closed Calendar/Queue/Post Management, V19 closed Drafts/Autosave/Templates/Reusable Content/Per-Platform Composer, V20 closed Basic Social Analytics, and V21 closes Users/Roles. The recommended next live milestone is therefore **V22 — Browser E2E & Role Verification**, explicitly as production-readiness work rather than another source-defined product feature.
+The historical source roadmap's version labels diverged from live implementation order. Live V18 closed Calendar/Queue/Post Management, V19 closed Drafts/Autosave/Templates/Reusable Content/Per-Platform Composer, V20 closed Basic Social Analytics, V21 closed Users/Roles, and V22 adds the first real-browser production-readiness gate.
 
 ## Development Rules
 
