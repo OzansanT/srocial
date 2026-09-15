@@ -6,6 +6,10 @@ import { createRequestHandler } from '../server/app.js';
 
 function memoryRepository() {
   const posts = [], publications = [], jobs = [], media = [];
+  const accounts = [
+    { id: 'acc-fb', provider: 'facebook', state: 'CONNECTED', displayName: 'Facebook Demo' },
+    { id: 'acc-th', provider: 'threads', state: 'CONNECTED', displayName: 'Threads Demo' }
+  ];
   let id = 0;
   const add = (list, record) => { const item = { id: String(++id), ...structuredClone(record) }; list.push(item); return structuredClone(item); };
   const operations = () => posts.map((post) => ({
@@ -31,6 +35,10 @@ function memoryRepository() {
       }
       return { post: createdPost, media: createdMedia, publications: createdPublications, jobs: createdJobs };
     },
+    async getAccount(accountId) {
+      const account = accounts.find((item) => item.id === accountId);
+      return account ? structuredClone(account) : null;
+    },
     async listJobs() { return structuredClone(jobs); },
     async listPostsWithPublications() { return posts.map((post) => ({ ...structuredClone(post), publications: structuredClone(publications.filter((item) => item.postId === post.id)) })); },
     async listPostOperations() { return structuredClone(operations()); }
@@ -46,18 +54,51 @@ async function withServer(run) {
   try { await run(`http://127.0.0.1:${server.address().port}`); } finally { server.close(); await once(server, 'close'); }
 }
 
-test('creates and lists a scheduled post', async () => {
+const destinations = [
+  { platform: 'facebook', accountId: 'acc-fb' },
+  { platform: 'threads', accountId: 'acc-th' }
+];
+
+test('creates and lists an account-bound scheduled post', async () => {
   await withServer(async (base) => {
-    const create = await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Hello', platforms: ['facebook', 'threads'], scheduledAt: '2026-09-11T10:00:00.000Z' }) });
+    const create = await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Hello', destinations, scheduledAt: '2026-09-11T10:00:00.000Z' }) });
     assert.equal(create.status, 201);
     const created = await create.json();
     assert.equal(created.publications.length, 2);
+    assert.deepEqual(created.publications.map((item) => item.accountId), ['acc-fb', 'acc-th']);
     const list = await fetch(`${base}/api/posts`);
     assert.equal(list.status, 200);
     const payload = await list.json();
     assert.equal(payload.posts.length, 1);
     assert.equal(payload.posts[0].publications.length, 2);
   });
+});
+
+test('rejects valid platforms-only scheduling by default', async () => {
+  await withServer(async (base) => {
+    const response = await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Legacy', platforms: ['facebook'], scheduledAt: '2026-09-11T10:00:00.000Z' }) });
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.equal(payload.error, 'validation_error');
+    assert.ok(payload.details.some((item) => item.field === 'destinations' && /account-bound destinations/i.test(item.message)));
+  });
+});
+
+test('operator compatibility flag explicitly enables platforms-only scheduling', async () => {
+  const previous = process.env.ALLOW_LEGACY_PLATFORM_SCHEDULING;
+  process.env.ALLOW_LEGACY_PLATFORM_SCHEDULING = 'true';
+  try {
+    await withServer(async (base) => {
+      const response = await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Legacy compatibility', platforms: ['facebook'], scheduledAt: '2026-09-11T10:00:00.000Z' }) });
+      assert.equal(response.status, 201);
+      const payload = await response.json();
+      assert.equal(payload.publications[0].accountId, null);
+      assert.equal(payload.jobs[0].accountId, null);
+    });
+  } finally {
+    if (previous === undefined) delete process.env.ALLOW_LEGACY_PLATFORM_SCHEDULING;
+    else process.env.ALLOW_LEGACY_PLATFORM_SCHEDULING = previous;
+  }
 });
 
 test('returns validation details with 400', async () => {
@@ -80,7 +121,8 @@ test('returns invalid_json for malformed JSON', async () => {
 
 test('dashboard counts stored scheduled publications', async () => {
   await withServer(async (base) => {
-    await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Count me', platforms: ['facebook', 'threads'], scheduledAt: '2026-09-11T12:00:00.000Z' }) });
+    const create = await fetch(`${base}/api/posts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caption: 'Count me', destinations, scheduledAt: '2026-09-11T12:00:00.000Z' }) });
+    assert.equal(create.status, 201);
     const response = await fetch(`${base}/api/dashboard`);
     const payload = await response.json();
     assert.equal(payload.counts.scheduled, 2);
