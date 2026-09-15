@@ -1,3 +1,4 @@
+import { legacyPlatformSchedulingEnabled } from '../config/scheduling.js';
 import { createScheduledPost, ValidationError } from '../services/post-service.js';
 import {
   bulkCancelPostLifecycle,
@@ -28,9 +29,9 @@ async function lifecyclePayload(operation) {
   catch (error) { return safeError(error) ?? Promise.reject(error); }
 }
 
-export async function createPostPayload(repository, input, { now } = {}) {
+export async function createPostPayload(repository, input, { now, allowLegacyPlatforms = legacyPlatformSchedulingEnabled() } = {}) {
   try {
-    const result = await createScheduledPost(repository, input, { now });
+    const result = await createScheduledPost(repository, input, { now, allowLegacyPlatforms });
     return { statusCode: 201, payload: result };
   } catch (error) {
     return safeError(error) ?? Promise.reject(error);
