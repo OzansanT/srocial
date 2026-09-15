@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, rm } from 'node:fs/promises';
-import net from 'node:net';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -10,22 +9,23 @@ const DEFAULT_WAIT_TIMEOUT_MS = 5_000;
 const CDP_REQUEST_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 50;
 const SHUTDOWN_TIMEOUT_MS = 3_000;
+const MAX_CHROME_DIAGNOSTIC_CHARS = 2_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function getFreePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen({ host: HOST, port: 0 }, resolve);
-  });
-  const address = server.address();
-  const port = typeof address === 'object' && address ? address.port : null;
-  await new Promise((resolve) => server.close(resolve));
-  if (!Number.isInteger(port)) throw new Error('E2E_BROWSER_PORT_ALLOCATION_FAILED');
-  return port;
+function appendDiagnostic(current, chunk) {
+  const next = `${current}${String(chunk ?? '')}`;
+  return next.length > MAX_CHROME_DIAGNOSTIC_CHARS
+    ? next.slice(-MAX_CHROME_DIAGNOSTIC_CHARS)
+    : next;
+}
+
+function attachDiagnostic(error, diagnostic) {
+  const text = String(diagnostic ?? '').trim();
+  if (text) error.cause = new Error(text);
+  return error;
 }
 
 async function findChrome() {
@@ -81,23 +81,63 @@ async function stopChild(child) {
   }
 }
 
-async function discoverPageTarget(debugPort, child) {
+async function discoverDebugPort({ profileDirectory, child, getLaunchError, getDiagnostic }) {
+  const activePortFile = path.join(profileDirectory, 'DevToolsActivePort');
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const launchError = getLaunchError();
+    if (launchError) {
+      throw attachDiagnostic(new Error('E2E_CHROME_LAUNCH_FAILED'), getDiagnostic());
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw attachDiagnostic(new Error('E2E_CHROME_EXITED'), getDiagnostic());
+    }
+
+    try {
+      const content = await readFile(activePortFile, 'utf8');
+      const [portLine] = content.split(/\r?\n/);
+      const port = Number.parseInt(portLine, 10);
+      if (Number.isInteger(port) && port > 0 && port <= 65535) return port;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw attachDiagnostic(new Error('E2E_CHROME_ACTIVE_PORT_INVALID'), getDiagnostic());
+      }
+    }
+
+    await sleep(POLL_INTERVAL_MS);
+  }
+
+  throw attachDiagnostic(new Error('E2E_CHROME_STARTUP_TIMEOUT'), getDiagnostic());
+}
+
+async function discoverPageTarget(debugPort, child, getLaunchError, getDiagnostic) {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null || child.signalCode !== null) throw new Error('E2E_CHROME_EXITED');
+    const launchError = getLaunchError();
+    if (launchError) {
+      throw attachDiagnostic(new Error('E2E_CHROME_LAUNCH_FAILED'), getDiagnostic());
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw attachDiagnostic(new Error('E2E_CHROME_EXITED'), getDiagnostic());
+    }
     try {
-      const response = await fetch(`http://${HOST}:${debugPort}/json/list`);
+      const response = await fetch(`http://${HOST}:${debugPort}/json/list`, {
+        signal: AbortSignal.timeout(1_000)
+      });
       if (response.ok) {
         const targets = await response.json();
-        const page = Array.isArray(targets) ? targets.find((target) => target?.type === 'page' && target?.webSocketDebuggerUrl) : null;
+        const page = Array.isArray(targets)
+          ? targets.find((target) => target?.type === 'page' && target?.webSocketDebuggerUrl)
+          : null;
         if (page) return page;
       }
     } catch {
-      // Remote debugger is not listening yet.
+      // Remote debugger may be active before the initial page target is exposed.
     }
     await sleep(POLL_INTERVAL_MS);
   }
-  throw new Error('E2E_CHROME_STARTUP_TIMEOUT');
+  throw attachDiagnostic(new Error('E2E_CHROME_PAGE_TARGET_TIMEOUT'), getDiagnostic());
 }
 
 function openWebSocket(url) {
@@ -232,10 +272,11 @@ function serialize(value) {
 export async function launchBrowser() {
   const chromePath = await findChrome();
   const profileDirectory = await mkdtemp(path.join(os.tmpdir(), 'srocial-chrome-'));
-  const debugPort = await getFreePort();
   let socket;
   let cdp;
   let closed = false;
+  let launchError = null;
+  let diagnostic = '';
 
   const chrome = spawn(chromePath, [
     '--headless=new',
@@ -245,10 +286,17 @@ export async function launchBrowser() {
     '--no-first-run',
     '--no-default-browser-check',
     `--remote-debugging-address=${HOST}`,
-    `--remote-debugging-port=${debugPort}`,
+    '--remote-debugging-port=0',
     `--user-data-dir=${profileDirectory}`,
     'about:blank'
-  ], { stdio: ['ignore', 'ignore', 'ignore'] });
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+  chrome.once('error', (error) => {
+    launchError = error;
+  });
+  chrome.stderr?.on('data', (chunk) => {
+    diagnostic = appendDiagnostic(diagnostic, chunk);
+  });
 
   async function close() {
     if (closed) return;
@@ -263,12 +311,21 @@ export async function launchBrowser() {
   }
 
   try {
-    const target = await discoverPageTarget(debugPort, chrome);
+    const getLaunchError = () => launchError;
+    const getDiagnostic = () => diagnostic;
+    const debugPort = await discoverDebugPort({
+      profileDirectory,
+      child: chrome,
+      getLaunchError,
+      getDiagnostic
+    });
+    const target = await discoverPageTarget(debugPort, chrome, getLaunchError, getDiagnostic);
     socket = await openWebSocket(target.webSocketDebuggerUrl);
     cdp = createCdpClient(socket);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
   } catch (error) {
+    if (!error.cause && diagnostic.trim()) attachDiagnostic(error, diagnostic);
     await close();
     throw error;
   }
