@@ -7,6 +7,7 @@ import path from 'node:path';
 const HOST = '127.0.0.1';
 const STARTUP_TIMEOUT_MS = 10_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 5_000;
+const CDP_REQUEST_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 50;
 const SHUTDOWN_TIMEOUT_MS = 3_000;
 
@@ -126,7 +127,10 @@ function createCdpClient(socket) {
   const eventWaiters = new Map();
 
   function rejectOutstanding(error) {
-    for (const { reject } of pending.values()) reject(error);
+    for (const request of pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(error);
+    }
     pending.clear();
     for (const waiters of eventWaiters.values()) {
       for (const waiter of waiters) waiter.reject(error);
@@ -146,6 +150,7 @@ function createCdpClient(socket) {
       const request = pending.get(message.id);
       if (!request) return;
       pending.delete(message.id);
+      clearTimeout(request.timer);
       if (message.error) {
         const error = new Error(`E2E_CDP_${request.method.replaceAll('.', '_')}_${message.error.code ?? 'ERROR'}`);
         request.reject(error);
@@ -170,7 +175,13 @@ function createCdpClient(socket) {
     if (closed || socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('E2E_CDP_NOT_OPEN'));
     const id = nextId++;
     return new Promise((resolve, reject) => {
-      pending.set(id, { method, resolve, reject });
+      const timer = setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`E2E_CDP_REQUEST_TIMEOUT_${method.replaceAll('.', '_')}`));
+      }, CDP_REQUEST_TIMEOUT_MS);
+      timer.unref?.();
+      pending.set(id, { method, resolve, reject, timer });
       socket.send(JSON.stringify({ id, method, params }));
     });
   }
