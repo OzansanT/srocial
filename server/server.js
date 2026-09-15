@@ -21,9 +21,10 @@ const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 const host = process.env.HOST ?? '127.0.0.1';
 const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://${host}:${port}`;
 const runtimeEnv = { ...process.env, PUBLIC_BASE_URL: publicBaseUrl };
-const appAuth = createAppAuth({ env: runtimeEnv });
 const repository = createRepositoryFromEnvironment();
 await repository.initialize();
+const appAuth = createAppAuth({ env: runtimeEnv, repository });
+await appAuth.initialize();
 
 const oauthProviderRegistry = createOAuthProviderRegistry();
 const platformRegistry = createPlatformRegistry();

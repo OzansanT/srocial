@@ -4,6 +4,7 @@ import { createPostgresAnalytics } from './postgres-analytics.js';
 import { createPostgresComposer } from './postgres-composer.js';
 import { createPostgresOperations } from './postgres-operations.js';
 import { createPostgresScheduling } from './postgres-scheduling.js';
+import { createPostgresUsers } from './postgres-users.js';
 import { createPostgresWhatsApp } from './postgres-whatsapp.js';
 
 const { Pool } = pg;
@@ -27,7 +28,9 @@ const REQUIRED_TABLES = Object.freeze([
   'composer_drafts',
   'caption_templates',
   'hashtag_collections',
-  'destination_groups'
+  'destination_groups',
+  'app_users',
+  'app_user_sessions'
 ]);
 
 const ACCOUNT_UPDATE_COLUMNS = Object.freeze({
@@ -219,6 +222,7 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
   const whatsapp = createPostgresWhatsApp(database);
   const composer = createPostgresComposer(database);
   const analytics = createPostgresAnalytics(database);
+  const users = createPostgresUsers(database);
 
   return {
     ...operations,
@@ -226,6 +230,7 @@ export function createPostgresRepository({ connectionString, pool = null } = {})
     ...whatsapp,
     ...composer,
     ...analytics,
+    ...users,
     async initialize() {
       const result = await database.query(
         'SELECT table_name, to_regclass(table_name) AS regclass FROM unnest($1::text[]) AS required(table_name)',

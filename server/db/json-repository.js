@@ -5,6 +5,7 @@ import { JOB_STATES } from '../scheduler/job-states.js';
 import { createJsonAnalytics } from './json-analytics.js';
 import { createJsonComposer } from './json-composer.js';
 import { applyJsonPostLifecycleMutations, buildJsonPostOperations } from './json-post-lifecycle.js';
+import { createJsonUsers } from './json-users.js';
 
 function clone(value) { return structuredClone(value); }
 function emptyData() {
@@ -12,7 +13,8 @@ function emptyData() {
     posts: [], publications: [], jobs: [], accounts: [], oauthStates: [], media: [],
     publicationAttempts: [], webhookEvents: [], providerStatuses: [], publicationMetricSnapshots: [],
     contacts: [], whatsappTemplates: [], campaigns: [], campaignRecipients: [], whatsappMessages: [],
-    composerDrafts: [], captionTemplates: [], hashtagCollections: [], destinationGroups: []
+    composerDrafts: [], captionTemplates: [], hashtagCollections: [], destinationGroups: [],
+    users: [], userSessions: []
   };
 }
 
@@ -86,6 +88,7 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
     getData: () => data
   });
   const analytics = createJsonAnalytics({ mutate, stableRead, getData: () => data });
+  const users = createJsonUsers({ mutate, update, stableRead, enqueueMutation, getData: () => data });
 
   return {
     async initialize() {
@@ -110,7 +113,9 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
           composerDrafts: Array.isArray(parsed.composerDrafts) ? parsed.composerDrafts : [],
           captionTemplates: Array.isArray(parsed.captionTemplates) ? parsed.captionTemplates : [],
           hashtagCollections: Array.isArray(parsed.hashtagCollections) ? parsed.hashtagCollections : [],
-          destinationGroups: Array.isArray(parsed.destinationGroups) ? parsed.destinationGroups : []
+          destinationGroups: Array.isArray(parsed.destinationGroups) ? parsed.destinationGroups : [],
+          users: Array.isArray(parsed.users) ? parsed.users : [],
+          userSessions: Array.isArray(parsed.userSessions) ? parsed.userSessions : []
         };
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
@@ -122,6 +127,7 @@ export function createJsonRepository({ filePath, faultInjector = null }) {
     async close() {},
     ...composer,
     ...analytics,
+    ...users,
     createAccount(record) { return mutate('accounts', record); },
     updateAccount(id, patch) { return update('accounts', id, patch); },
     getAccount(id) { return stableRead(() => data.accounts.find((item) => item.id === id) ?? null); },

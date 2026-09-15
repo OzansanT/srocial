@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/css/pages/whatsapp.css">
   <link rel="stylesheet" href="/css/pages/queue-calendar.css">
   <link rel="stylesheet" href="/css/pages/analytics.css">
+  <link rel="stylesheet" href="/css/pages/users.css">
 </head>
 <body>
   <div class="app-shell">
@@ -36,6 +37,7 @@
         <a class="sidebar__link" href="#whatsapp">WhatsApp</a>
         <a class="sidebar__link" href="#queue">Queue</a>
         <a class="sidebar__link" href="#analytics" data-page="analytics">Analytics</a>
+        <a class="sidebar__link" href="#users" data-admin-only hidden>Users</a>
         <a class="sidebar__link" href="#operations">Operations</a>
       </nav>
       <div class="sidebar__footer"><span class="status-dot" aria-hidden="true"></span><span id="service-status">Checking service…</span></div>
@@ -322,6 +324,24 @@
             <div id="analyticsPosts" aria-live="polite"></div>
           </section>
         </div>
+      </section>
+
+      <section class="card panel users-panel" id="users" data-admin-only hidden aria-labelledby="users-title">
+        <div class="panel__header">
+          <div><p class="eyebrow">Access control</p><h2 id="users-title">Users &amp; roles</h2></div>
+        </div>
+        <p class="users-help">Administrators can create users, assign roles, disable access, rotate passwords, and revoke active sessions. Passwords are never displayed after submission.</p>
+        <form id="user-create-form" class="users-create-form">
+          <div class="users-create-grid">
+            <label class="field"><span>Username</span><input name="username" type="text" minlength="1" maxlength="64" autocomplete="username" required></label>
+            <label class="field"><span>Display name</span><input name="displayName" type="text" maxlength="120"></label>
+            <label class="field"><span>Role</span><select name="role" required><option value="VIEWER">Viewer</option><option value="EDITOR">Editor</option><option value="MANAGER">Manager</option><option value="ADMIN">Admin</option></select></label>
+            <label class="field"><span>Temporary password</span><input name="password" type="password" minlength="12" maxlength="200" autocomplete="new-password" required></label>
+          </div>
+          <button class="button button--primary" type="submit">Create user</button>
+        </form>
+        <p id="users-feedback" class="form-feedback" aria-live="polite"></p>
+        <div id="user-list" class="users-list" aria-live="polite"></div>
       </section>
 
       <section class="card panel operations-panel" id="operations" aria-labelledby="operations-title">

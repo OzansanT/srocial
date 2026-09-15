@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { Readable } from 'node:stream';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequestHandler } from '../server/app.js';
 import { createAppAuth } from '../server/auth/create-app-auth.js';
+import { createJsonRepository } from '../server/db/json-repository.js';
 
 const AUTH_ENV = Object.freeze({
   APP_AUTH_ENABLED: 'true',
@@ -21,7 +25,11 @@ const AUTH_ENV = Object.freeze({
 
 async function withServer(run, { env = AUTH_ENV, repository = null, mediaStore = null, tokenCipher = null } = {}) {
   const now = () => new Date('2026-09-11T10:00:00.000Z');
-  const appAuth = createAppAuth({ env, now });
+  const directory = await mkdtemp(join(tmpdir(), 'srocial-auth-api-'));
+  const authRepository = createJsonRepository({ filePath: join(directory, 'auth.json') });
+  await authRepository.initialize();
+  const appAuth = createAppAuth({ env, now, repository: authRepository });
+  await appAuth.initialize();
   const server = createServer(createRequestHandler({
     repository,
     mediaStore,
@@ -33,10 +41,12 @@ async function withServer(run, { env = AUTH_ENV, repository = null, mediaStore =
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
-    await run(`http://127.0.0.1:${server.address().port}`);
+    await run(`http://127.0.0.1:${server.address().port}`, authRepository);
   } finally {
     server.close();
     await once(server, 'close');
+    await authRepository.close();
+    await rm(directory, { recursive: true, force: true });
   }
 }
 
@@ -93,8 +103,8 @@ test('protected browser navigation redirects while protected APIs return JSON 40
   });
 });
 
-test('login issues a signed session used by session and protected APIs', async () => {
-  await withServer(async (base) => {
+test('login issues an opaque revocable session used by session and protected APIs', async () => {
+  await withServer(async (base, authRepository) => {
     const bad = await login(base, { password: 'definitely-wrong-password' });
     assert.equal(bad.status, 401);
     assert.deepEqual(await bad.json(), { error: 'invalid_credentials' });
@@ -109,7 +119,11 @@ test('login issues a signed session used by session and protected APIs', async (
 
     const session = await fetch(`${base}/api/auth/session`, { headers: { cookie, accept: 'application/json' } });
     assert.equal(session.status, 200);
-    assert.deepEqual(await session.json(), { authenticated: true, user: { username: 'operator' } });
+    const user = (await authRepository.listUsers())[0];
+    assert.deepEqual(await session.json(), {
+      authenticated: true,
+      user: { id: user.id, username: 'operator', displayName: 'operator', role: 'ADMIN' }
+    });
 
     const dashboard = await fetch(`${base}/api/dashboard`, { headers: { cookie, accept: 'application/json' } });
     assert.equal(dashboard.status, 200);
@@ -135,7 +149,7 @@ test('authenticated cross-site mutations are rejected before downstream work', a
   }, { mediaStore });
 });
 
-test('logout expires the session cookie', async () => {
+test('logout revokes the session and expires the session cookie', async () => {
   await withServer(async (base) => {
     const authenticated = await login(base);
     const cookie = cookiePair(authenticated);
@@ -146,6 +160,9 @@ test('logout expires the session cookie', async () => {
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { authenticated: false });
     assert.match(response.headers.get('set-cookie'), /Max-Age=0/);
+
+    const after = await fetch(`${base}/api/auth/session`, { headers: { cookie, accept: 'application/json' } });
+    assert.equal(after.status, 401);
   });
 });
 

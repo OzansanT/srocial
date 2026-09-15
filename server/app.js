@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requiredRoleForRequest } from './auth/authorization-policy.js';
+import { roleAtLeast } from './auth/roles.js';
 import { readJsonBody, RequestBodyError } from './http/read-json-body.js';
 import { readRawBody } from './http/read-raw-body.js';
 import { getHealthPayload } from './routes/health.js';
@@ -22,6 +24,7 @@ import { completeOAuthPayload, startOAuthPayload } from './routes/oauth.js';
 import { deleteMediaPayload, listMediaPayload } from './routes/media.js';
 import { getTikTokCreatorInfoPayload } from './routes/tiktok.js';
 import { getOperationsPayload } from './routes/operations.js';
+import { routeUserManagementRequest } from './routes/users.js';
 import {
   handleMetaChallenge,
   handleMetaWebhook,
@@ -191,7 +194,7 @@ export function createRequestHandler({
           return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(loginLimit.retryAfterSeconds) });
         }
         const body = await readJsonBody(request);
-        const result = appAuth.login(body);
+        const result = await appAuth.login(body);
         const headers = {};
         if (result.setCookie) headers['set-cookie'] = result.setCookie;
         return sendJson(response, result.statusCode, result.payload, headers);
@@ -199,7 +202,7 @@ export function createRequestHandler({
 
       let applicationSession = null;
       if (appAuth?.enabled && !isPublicRoute(request.method, url.pathname)) {
-        applicationSession = appAuth.readSession(request);
+        applicationSession = await appAuth.readSession(request);
         if (!applicationSession) {
           if (isApiRequest(url.pathname)) return sendJson(response, 401, { error: 'unauthorized' });
           return sendRedirect(response, '/login.html');
@@ -214,6 +217,13 @@ export function createRequestHandler({
 
         if (isMutation(request.method) && !appAuth.validateMutation(request)) {
           return sendJson(response, 403, { error: 'cross_site_request' });
+        }
+
+        if (isApiRequest(url.pathname)) {
+          const requiredRole = requiredRoleForRequest(request.method, url.pathname);
+          if (!roleAtLeast(applicationSession.user?.role, requiredRole)) {
+            return sendJson(response, 403, { error: 'forbidden' });
+          }
         }
       }
 
@@ -252,12 +262,24 @@ export function createRequestHandler({
 
       if (request.method === 'GET' && url.pathname === '/api/auth/session' && appAuth) {
         if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
-        return sendJson(response, 200, { authenticated: true, user: { username: applicationSession.username } });
+        return sendJson(response, 200, { authenticated: true, user: applicationSession.user });
       }
 
       if (request.method === 'POST' && url.pathname === '/api/auth/logout' && appAuth) {
         if (!appAuth.enabled) return sendJson(response, 200, { authenticated: false });
-        return sendJson(response, 200, { authenticated: false }, { 'set-cookie': appAuth.issueLogoutCookie() });
+        const logout = await appAuth.logout(applicationSession);
+        return sendJson(response, 200, { authenticated: false }, { 'set-cookie': logout.setCookie });
+      }
+
+      if (appAuth?.enabled) {
+        const usersResult = await routeUserManagementRequest({
+          request,
+          pathname: url.pathname,
+          repository,
+          actorUserId: applicationSession?.user?.id ?? null,
+          now: now()
+        });
+        if (usersResult) return sendJson(response, usersResult.statusCode, usersResult.payload);
       }
 
       if (request.method === 'GET' && url.pathname === '/api/health') {

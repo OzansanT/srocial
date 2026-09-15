@@ -1,0 +1,71 @@
+.users-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.users-create-form {
+  display: grid;
+  gap: .85rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #d9d9df);
+  border-radius: .85rem;
+  background: var(--surface-raised, #fff);
+}
+
+.users-create-grid,
+.user-card__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .75rem;
+}
+
+.users-list {
+  display: grid;
+  gap: .85rem;
+}
+
+.user-card {
+  display: grid;
+  gap: .85rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #d9d9df);
+  border-radius: .85rem;
+  background: var(--surface-raised, #fff);
+}
+
+.user-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.user-card__header h3,
+.user-card__header p {
+  margin: 0;
+}
+
+.user-card__header p,
+.users-help {
+  color: var(--text-muted, #667085);
+}
+
+.user-card__badge {
+  flex: 0 0 auto;
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.user-card__actions {
+  display: grid;
+  grid-template-columns: auto minmax(200px, 1fr) auto auto;
+  gap: .65rem;
+  align-items: end;
+}
+
+@media (max-width: 760px) {
+  .user-card__actions {
+    grid-template-columns: 1fr;
+  }
+}
