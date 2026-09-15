@@ -69,6 +69,21 @@ test('PostgreSQL users enforce normalized username uniqueness and round-trip saf
   assert.equal(updated.role, 'MANAGER');
 });
 
+test('PostgreSQL admin continuity is serialized across concurrent demotions', { skip: !enabled }, async () => {
+  const first = await repository.createUser(userRecord({ username: 'admin-one', usernameNormalized: 'admin-one' }));
+  const second = await repository.createUser(userRecord({ username: 'admin-two', usernameNormalized: 'admin-two' }));
+
+  const outcomes = await Promise.allSettled([
+    repository.updateUserWithAdminContinuity(first.id, { role: 'MANAGER', updatedAt: '2026-09-15T10:05:00.000Z' }),
+    repository.updateUserWithAdminContinuity(second.id, { role: 'MANAGER', updatedAt: '2026-09-15T10:05:00.000Z' })
+  ]);
+
+  assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.filter((item) => item.status === 'rejected' && item.reason?.message === 'LAST_ADMIN_FORBIDDEN').length, 1);
+  const users = await repository.listUsers();
+  assert.equal(users.filter((user) => user.role === 'ADMIN' && user.status === 'ACTIVE').length, 1);
+});
+
 test('PostgreSQL sessions are looked up by hash and can be revoked per session or user', { skip: !enabled }, async () => {
   const user = await repository.createUser(userRecord());
   const first = await repository.createUserSession({
