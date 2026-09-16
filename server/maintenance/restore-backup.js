@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import { join } from 'node:path';
 import { readManifest, validateBackupFiles } from './backup-format.js';
 import { maintenanceError } from './errors.js';
 
@@ -45,7 +46,7 @@ export async function restoreBackup({
   for (const asset of manifest.media.assets) {
     await mediaStore.restore(
       asset.key,
-      createReadStream(`${mediaDirectory}/${asset.key}`),
+      createReadStream(join(mediaDirectory, asset.key)),
       { contentType: asset.contentType }
     );
   }
