@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createReadStream } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -76,13 +75,16 @@ test('JSON backup restore validates driver and collections before replacing the 
 
 test('PostgreSQL backup export uses a fixed table set and excludes transient rate-limit buckets', async () => {
   const queries = [];
-  const pool = {
+  const client = {
     async query(text) {
       queries.push(text);
+      if (text.startsWith('BEGIN TRANSACTION') || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
       if (text.includes('srocial_migrations')) return { rows: [{ name: '001_initial.sql', checksum: 'abc' }] };
       return { rows: [{ rows_json: '[]' }] };
-    }
+    },
+    release() {}
   };
+  const pool = { connect: async () => client };
   const store = createPostgresBackupStore({ pool });
   const snapshot = await store.exportSnapshot();
   assert.equal(snapshot.driver, 'postgres');
@@ -133,8 +135,11 @@ test('PostgreSQL forced restore deletes reverse dependency order and inserts for
   const data = Object.fromEntries(POSTGRES_BACKUP_TABLES.map((table) => [table, table === POSTGRES_BACKUP_TABLES[0] ? '[{"id":"x"}]' : '[]']));
   await store.restoreSnapshot({ driver: 'postgres', migrations: [{ name: '001_initial.sql', checksum: 'abc' }], data }, { force: true });
 
-  const deletes = calls.filter((call) => call.text?.startsWith('DELETE FROM')).map((call) => call.text.match(/"([^"]+)"/)[1]);
+  const deletes = calls
+    .filter((call) => call.text?.startsWith('DELETE FROM') && call.text !== 'DELETE FROM "rate_limit_buckets"')
+    .map((call) => call.text.match(/"([^"]+)"/)[1]);
   assert.deepEqual(deletes, [...POSTGRES_BACKUP_TABLES].reverse());
+  assert.equal(calls.some((call) => call.text === 'DELETE FROM "rate_limit_buckets"'), true);
   const inserts = calls.filter((call) => call.text?.startsWith('INSERT INTO')).map((call) => call.text.match(/"([^"]+)"/)[1]);
   assert.deepEqual(inserts, [POSTGRES_BACKUP_TABLES[0]]);
   assert.equal(calls.some((call) => call.text === 'COMMIT'), true);
