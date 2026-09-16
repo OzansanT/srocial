@@ -101,6 +101,7 @@ test('TikTok publish failure synchronizes publication error state and authorizat
   assert.equal(repository.publications[0].errorCode, 'MEDIA_ERROR');
   await send({ client_key:'client', event:'authorization.removed', create_time:1789387210, user_openid:'open-1', content:JSON.stringify({ reason:1 }) }, '2026-09-14T12:00:10.000Z');
   assert.equal(repository.accounts[0].state, 'DISCONNECTED');
+  assert.equal(repository.accounts[0].lastErrorCode, 'PERMISSION_REVOKED');
 });
 
 test('Meta verified deliveries are persisted and deduplicated', async () => {
