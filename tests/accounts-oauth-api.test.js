@@ -17,7 +17,7 @@ async function withHarness(run, { tokenCipher = createTokenCipher('api test key'
   const registry = createOAuthProviderRegistry();
   registerOAuthProvider(registry, 'instagram', {
     getAuthorizationUrl: ({ state, redirectUri }) => `https://auth.test/?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
-    async exchangeCode() { return { accessToken: 'raw-access', refreshToken: 'raw-refresh', scopes: ['publish'] }; },
+    async exchangeCode() { return { accessToken: 'raw-access', refreshToken: 'raw-refresh', expiresAt: '2026-09-18T12:00:00.000Z', scopes: ['publish'] }; },
     async getAccountIdentity() { return { providerAccountId: 'ig-9', displayName: 'Demo IG', username: 'demoig' }; }
   });
   const server = createServer(createRequestHandler({ repository, oauthProviderRegistry: registry, tokenCipher, publicBaseUrl: 'http://localhost:9999', now: () => new Date('2026-09-10T12:00:00.000Z') }));
@@ -54,17 +54,24 @@ test('oauth start callback list and disconnect expose safe metadata only for JSO
     assert.equal(callback.status, 200);
     const connected = await callback.json();
     assert.equal(connected.account.state, 'CONNECTED');
+    assert.equal(connected.account.healthState, 'EXPIRING');
+    assert.equal(connected.account.expiresInDays, 8);
     assert.equal(JSON.stringify(connected).includes('raw-access'), false);
 
     const listed = await (await fetch(`${base}/api/accounts`, { headers: { accept: 'application/json' } })).json();
     assert.equal(listed.accounts.length, 1);
+    assert.equal(listed.accounts[0].healthState, 'EXPIRING');
+    assert.equal(listed.accounts[0].expiresInDays, 8);
     assert.equal(JSON.stringify(listed).includes('TokenEncrypted'), false);
     const stored = (await repository.listAccounts())[0];
     assert.notEqual(stored.accessTokenEncrypted, 'raw-access');
 
     const disconnected = await fetch(`${base}/api/accounts/${connected.account.id}/disconnect`, { method: 'POST', headers: { accept: 'application/json' } });
     assert.equal(disconnected.status, 200);
-    assert.equal((await disconnected.json()).account.state, 'DISCONNECTED');
+    const disconnectedAccount = (await disconnected.json()).account;
+    assert.equal(disconnectedAccount.state, 'DISCONNECTED');
+    assert.equal(disconnectedAccount.reconnectNeeded, true);
+    assert.equal(disconnectedAccount.reconnectReason, 'disconnected');
   });
 });
 

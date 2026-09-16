@@ -30,6 +30,22 @@ test('encrypts tokens and exposes only safe account metadata', async () => {
   assert.equal('refreshTokenEncrypted' in listed[0], false);
 });
 
+test('safe account list derives expiration and reconnect health without exposing credentials', async () => {
+  const repository = createRepository();
+  await upsertConnectedAccount(repository, cipher, {
+    provider:'instagram', providerAccountId:'ig-health', displayName:'Health Demo', accessToken:'access-health', refreshToken:'refresh-health', expiresAt:'2026-09-18T12:00:00.000Z'
+  }, { now });
+
+  const [listed] = await listSafeAccounts(repository, { now });
+  assert.equal(listed.healthState, 'EXPIRING');
+  assert.equal(listed.expirationWarning, true);
+  assert.equal(listed.expiresInDays, 8);
+  assert.equal(listed.reconnectNeeded, false);
+  assert.equal(listed.reconnectReason, null);
+  assert.equal('accessTokenEncrypted' in listed, false);
+  assert.equal('refreshTokenEncrypted' in listed, false);
+});
+
 test('reconnect updates the existing provider identity', async () => {
   const repository = createRepository();
   const first = await upsertConnectedAccount(repository, cipher, { provider: 'instagram', providerAccountId: 'ig-1', displayName: 'Old', accessToken: 'one' }, { now });

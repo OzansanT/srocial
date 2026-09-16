@@ -26,12 +26,28 @@ function providerLabel(provider) {
   return provider ? `${provider.charAt(0).toUpperCase()}${provider.slice(1)}` : 'Unknown';
 }
 
+function accountHealthMessage(account) {
+  if (account?.expirationWarning === true && Number.isInteger(account?.expiresInDays)) {
+    const unit = account.expiresInDays === 1 ? 'day' : 'days';
+    return `Token expires in ${account.expiresInDays} ${unit}.`;
+  }
+  switch (account?.reconnectReason) {
+    case 'expired': return 'Reconnect needed: token expired.';
+    case 'permission_revoked': return 'Reconnect needed: provider permission was revoked.';
+    case 'disconnected': return 'Reconnect needed: account is disconnected.';
+    case 'error': return 'Reconnect needed: account connection error.';
+    default: return '';
+  }
+}
+
 export function buildAccountViewModel(account = {}) {
   const provider = String(account.provider ?? '').trim().toLowerCase();
   const username = String(account.username ?? '').trim();
   const displayName = String(account.displayName ?? '').trim();
   const providerAccountId = String(account.providerAccountId ?? '').trim();
   const state = String(account.state ?? 'DISCONNECTED').trim().toUpperCase();
+  const reconnectNeeded = account.reconnectNeeded === true;
+  const healthState = String(account.healthState ?? (state === 'CONNECTING' ? 'CONNECTING' : state === 'CONNECTED' ? 'CONNECTED' : reconnectNeeded ? 'RECONNECT_NEEDED' : state)).trim().toUpperCase();
 
   return {
     id: String(account.id ?? ''),
@@ -40,7 +56,11 @@ export function buildAccountViewModel(account = {}) {
     identity: username ? `@${username}` : (providerAccountId || displayName || 'Account'),
     displayName,
     state,
+    healthState,
+    healthMessage: accountHealthMessage(account),
+    reconnectNeeded,
     canReconnect: OAUTH_ENABLED_PROVIDERS.has(provider),
+    reconnectLabel: state === 'CONNECTED' || reconnectNeeded ? 'Reconnect' : 'Connect',
     canDisconnect: state === 'CONNECTED'
   };
 }
@@ -85,10 +105,18 @@ function renderAccountRow(account) {
     main.append(name);
   }
 
+  if (model.healthMessage) {
+    const health = document.createElement('p');
+    health.className = 'account-row__health';
+    health.dataset.healthState = model.healthState;
+    health.textContent = model.healthMessage;
+    main.append(health);
+  }
+
   const actions = document.createElement('div');
   actions.className = 'account-row__actions';
   if (model.canReconnect) {
-    actions.append(createButton(model.state === 'CONNECTED' ? 'Reconnect' : 'Connect', {
+    actions.append(createButton(model.reconnectLabel, {
       action: 'reconnect',
       accountId: model.id,
       provider: model.provider

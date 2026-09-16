@@ -72,6 +72,8 @@ async function createUser({ username, password, role }) {
 }
 
 async function userCardAction(username, expression) {
+  const cardPresent = `[...document.querySelectorAll('.user-card')].some((node) => node.textContent.includes(${js(`@${username}`)}))`;
+  await browser.waitFor(cardPresent);
   return browser.evaluate(`(() => {
     const card = [...document.querySelectorAll('.user-card')].find((node) => node.textContent.includes(${js(`@${username}`)}));
     if (!card) throw new Error('USER_CARD_NOT_FOUND');
