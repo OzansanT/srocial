@@ -126,7 +126,7 @@ export async function processTikTokWebhook({ repository, rawBody, payload, now =
         refreshTokenEncrypted: null,
         tokenExpiresAt: null,
         disconnectedAt: now.toISOString(),
-        lastErrorCode: null,
+        lastErrorCode: 'PERMISSION_REVOKED',
         updatedAt: now.toISOString()
       });
     }
