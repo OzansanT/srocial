@@ -1,7 +1,7 @@
 import { disconnectAccount, listSafeAccounts } from '../services/account-service.js';
 
-export async function listAccountsPayload(repository) {
-  return { statusCode: 200, payload: { accounts: await listSafeAccounts(repository) } };
+export async function listAccountsPayload(repository, { now = new Date() } = {}) {
+  return { statusCode: 200, payload: { accounts: await listSafeAccounts(repository, { now }) } };
 }
 
 export async function disconnectAccountPayload(repository, id, { now = new Date() } = {}) {
