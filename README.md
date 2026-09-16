@@ -4,12 +4,12 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, analyt
 
 Instagram, Facebook Pages, Threads, and TikTok share the social publishing and analytics runtime. WhatsApp Business is intentionally a separate contacts/templates/campaign subsystem that reuses the same repository, scheduler infrastructure, verified-webhook layer, and Operations Center.
 
-## Current Status — V29
+## Current Status — V30
 
 The runnable foundation includes:
 
 - vanilla HTML/CSS/JavaScript dashboard with Accounts, Media Library, Composer, Drafts, Operations, WhatsApp, Queue, Calendar, Analytics, and Admin Users;
-- provider-neutral OAuth/account infrastructure with encrypted credentials;
+- provider-neutral OAuth/account infrastructure with encrypted credentials plus token-expiration warnings and reconnect-needed account health;
 - Instagram professional-account OAuth, token refresh, image/Reel publishing/status, and analytics;
 - Facebook Pages OAuth with deterministic Page selection, text/image/Reel publishing, and analytics;
 - Threads OAuth, token refresh, text/image/video publishing/status, and analytics;
@@ -45,10 +45,10 @@ The scheduler starts only when `SCHEDULER_ENABLED=true` and at least one executi
 
 | Channel | Current state |
 | --- | --- |
-| Instagram | OAuth + account management + long-lived token refresh + image/Reel publish/status + analytics + content overrides |
-| Facebook Pages | OAuth + Page-token resolution + text/image/Reel publish/status + analytics + content overrides |
-| Threads | OAuth + long-lived token refresh + text/image/video publish/status + analytics + content overrides |
-| TikTok | OAuth + rotating token refresh + Creator Info + privacy-aware photo/video Direct Post + status + analytics + content overrides |
+| Instagram | OAuth + account management + long-lived token refresh + account health + image/Reel publish/status + analytics + content overrides |
+| Facebook Pages | OAuth + Page-token resolution + account health + text/image/Reel publish/status + analytics + content overrides |
+| Threads | OAuth + long-lived token refresh + account health + text/image/video publish/status + analytics + content overrides |
+| TikTok | OAuth + rotating token refresh + account health + Creator Info + privacy-aware photo/video Direct Post + status + analytics + content overrides |
 | WhatsApp Business | contacts + consent + approved templates + scheduled campaigns + recipient/message state + signed delivery webhooks |
 
 ## Architecture
@@ -203,6 +203,8 @@ See `docs/V21_USERS_ROLES.md`.
 
 The Accounts UI supports Instagram, Facebook, Threads, and TikTok connect/reconnect/disconnect workflows. Instagram, Threads, and TikTok refresh credentials through account-bound `TOKEN_REFRESH` jobs; TikTok refresh tokens may rotate.
 
+V30 adds an operator-facing health projection without creating another refresh system. Connected accounts inside the existing 30-day refresh horizon are shown as `EXPIRING` with an exact whole-day warning such as `Token expires in 8 days.` Accounts that are disconnected, expired, permission-revoked, in an account error state, or still recorded as connected after their token expiry are shown as `RECONNECT_NEEDED` with a safe reason and the existing provider `Reconnect` action. TikTok authorization removal now preserves the safe `PERMISSION_REVOKED` diagnostic so the UI can distinguish it from an ordinary disconnect.
+
 Preferred scheduling request:
 
 ```json
@@ -224,7 +226,7 @@ Preferred scheduling request:
 
 Every explicit account must exist, be `CONNECTED`, and match the selected platform. Social scheduling persists the post, master media, publications, and executable jobs as one all-or-nothing repository operation. Legacy platform-only scheduling is rejected unless `ALLOW_LEGACY_PLATFORM_SCHEDULING=true` is explicitly enabled.
 
-See `docs/V25_ACCOUNT_BOUND_SCHEDULING.md`.
+See `docs/V25_ACCOUNT_BOUND_SCHEDULING.md` and `docs/V30_ACCOUNT_TOKEN_HEALTH.md`.
 
 ## Media Storage
 
@@ -312,11 +314,11 @@ Current migrations run through:
 010_rate_limit_buckets.sql
 ```
 
-## Browser E2E Hardening — V22–V27
+## Browser E2E Hardening — V22–V30
 
 The real-browser suite launches the real Srocial server against isolated JSON/media state and controls installed headless Chrome through CDP. Browser fixtures keep external execution gates disabled and contain no live provider token.
 
-Coverage includes authentication/RBAC/Admin-user flows, Composer/drafts/reusable resources/overrides/compatibility, media lifecycle, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, Queue/Calendar lifecycle controls, drag/drop, native Reschedule prompt accept/invalid/dismiss paths, and individual cancellation.
+Coverage includes authentication/RBAC/Admin-user flows, Composer/drafts/reusable resources/overrides/compatibility, media lifecycle, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, Queue/Calendar lifecycle controls, drag/drop, native Reschedule prompt accept/invalid/dismiss paths, individual cancellation, and V30 permission-revoked reconnect health.
 
 V28 raised the guarded Chrome startup default to **30 seconds** after a real Actions cold-start exceeded the prior 20-second budget; the override remains validated and bounded.
 
@@ -342,7 +344,7 @@ find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 timeout --signal=TERM --kill-after=5s 75s npm run test:e2e
 ```
 
-The V29 code-complete integration run `35088108989` passed migrations `001–010`, **495/495 Node tests**, JavaScript syntax, and **15/15 real Chrome/CDP E2E scenarios**, including a browser test that verifies Database, Storage, Scheduler, and Environment diagnostics through the real spawned server.
+The V30 code-complete integration run `35095442455` passed migrations `001–010`, **505/505 Node tests**, JavaScript syntax, and **16/16 real Chrome/CDP E2E scenarios**, including the Accounts browser path for a permission-revoked reconnect-needed state.
 
 Automated CI cannot substitute for approved provider applications, live provider credentials, real WhatsApp sender identities, public HTTPS callbacks, analytics permissions/metric availability, or an operator's real reverse-proxy/load-balancer topology. Those external prerequisites remain separately tracked.
 
@@ -394,7 +396,8 @@ srocial/
 |  |- V25_ACCOUNT_BOUND_SCHEDULING.md
 |  |- V26_DISTRIBUTED_RATE_LIMITING.md
 |  |- V28_BACKUP_RESTORE.md
-|  `- V29_OPERATIONAL_HEALTH.md
+|  |- V29_OPERATIONAL_HEALTH.md
+|  `- V30_ACCOUNT_TOKEN_HEALTH.md
 |- .env.example
 `- package.json
 ```
@@ -409,9 +412,10 @@ Source-aligned post-product work completed so far includes:
 2. **V25 — Account-Bound Scheduling Migration (`SR-P007`)**;
 3. **V26 — Distributed/Trusted-Proxy Rate Limiting (`SR-P006`)**;
 4. **V28 — Portable Backup & Restore**, closing source **#14–15**;
-5. **V29 — Operational Health & Environment Diagnostics**, closing source **#16–20** by reusing existing database/provider health and adding storage, scheduler, and environment diagnostics.
+5. **V29 — Operational Health & Environment Diagnostics**, closing source **#16–20** by reusing existing database/provider health and adding storage, scheduler, and environment diagnostics;
+6. **V30 — Account Token Expiration & Reconnect Health**, closing source **#22–23** while reusing the already implemented source **#21** token-refresh subsystem.
 
-The next source audit continues from **#21 onward**. Existing implementation must be checked before assigning a new milestone: token-refresh work and provider-specific clients already exist, so Srocial must not duplicate completed functionality or invent a synthetic roadmap item.
+The next source-defined development is **#24 Instagram carousel posts — multiple images/videos** together with **#25 Instagram multi-image composer UI**. These should form the next bounded milestone before the separate Instagram validation items **#26–28**.
 
 The persistent external-verification work remains:
 
