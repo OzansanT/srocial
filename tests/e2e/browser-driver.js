@@ -4,12 +4,27 @@ import os from 'node:os';
 import path from 'node:path';
 
 const HOST = '127.0.0.1';
-const STARTUP_TIMEOUT_MS = 10_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
+const MIN_STARTUP_TIMEOUT_MS = 10_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 5_000;
 const CDP_REQUEST_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 50;
 const SHUTDOWN_TIMEOUT_MS = 3_000;
 const MAX_CHROME_DIAGNOSTIC_CHARS = 2_000;
+
+export function resolveChromeStartupTimeoutMs(env = process.env) {
+  const raw = env?.E2E_CHROME_STARTUP_TIMEOUT_MS;
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return DEFAULT_STARTUP_TIMEOUT_MS;
+  }
+
+  const value = Number(String(raw).trim());
+  return Number.isInteger(value) && value >= MIN_STARTUP_TIMEOUT_MS
+    ? value
+    : DEFAULT_STARTUP_TIMEOUT_MS;
+}
+
+const STARTUP_TIMEOUT_MS = resolveChromeStartupTimeoutMs();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
