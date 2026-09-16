@@ -73,6 +73,7 @@ test('real browser schedules an ordered two-image Instagram carousel', { timeout
     { type: 'image', url: FIRST_MEDIA, sortOrder: 0 },
     { type: 'image', url: SECOND_MEDIA, sortOrder: 1 }
   ]);
-  assert.equal(post.destinations?.[0]?.platform, 'instagram');
-  assert.equal(post.destinations?.[0]?.accountId, INSTAGRAM.id);
+  assert.equal(post.publications?.length, 1);
+  assert.equal(post.publications?.[0]?.platform, 'instagram');
+  assert.equal(post.publications?.[0]?.accountId, INSTAGRAM.id);
 });
