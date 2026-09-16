@@ -175,3 +175,30 @@ test('rejects traversal-like and missing media keys as not found', async () => {
     );
   });
 });
+
+test('local media health proves writeability and removes its probe file', async () => {
+  await withStore(async (store, directory) => {
+    const health = await store.healthCheck();
+    assert.deepEqual(health, { ok: true, backend: 'local', writable: true, errorCode: null });
+    assert.deepEqual(await readdir(directory), []);
+  });
+});
+
+test('local media health sanitizes inaccessible storage failures', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'srocial-media-health-'));
+  try {
+    const blocker = join(directory, 'not-a-directory');
+    const handle = await open(blocker, 'w');
+    await handle.close();
+    const store = createLocalMediaStore({
+      rootDirectory: join(blocker, 'uploads'),
+      publicBaseUrl: 'https://srocial.test',
+      maxBytes: 64
+    });
+    const health = await store.healthCheck();
+    assert.deepEqual(health, { ok: false, backend: 'local', writable: false, errorCode: 'MEDIA_STORAGE_UNAVAILABLE' });
+    assert.equal(JSON.stringify(health).includes(blocker), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
