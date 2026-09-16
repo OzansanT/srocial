@@ -4,7 +4,7 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, analyt
 
 Instagram, Facebook Pages, Threads, and TikTok share the social publishing and analytics runtime. WhatsApp Business is intentionally a separate contacts/templates/campaign subsystem that reuses the same repository, scheduler infrastructure, verified-webhook layer, and Operations Center.
 
-## Current Status — V26
+## Current Status — V27
 
 The runnable foundation now includes:
 
@@ -23,7 +23,7 @@ The runnable foundation now includes:
 - salted `scrypt` password hashing and opaque revocable HttpOnly application sessions whose raw tokens are never persisted;
 - centralized server-side RBAC, same-origin mutation protection, atomic last-active-Admin protection, secure trusted-proxy-aware client attribution, and shared PostgreSQL login/API rate limiting for multi-instance production deployments;
 - Admin user creation, role/status management, password rotation, session revocation, and immediate disabled-user invalidation;
-- real headless-Chrome CI coverage for authentication/RBAC/Admin-user flows plus draft/reusable-content/override/compatibility/preview workflows, local media upload/reuse/delete, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, and Queue/Calendar lifecycle actions;
+- real headless-Chrome CI coverage for authentication/RBAC/Admin-user flows plus draft/reusable-content/override/compatibility/preview workflows, local media upload/reuse/delete, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, Queue/Calendar lifecycle actions, native individual reschedule prompts, and individual cancellation;
 - publication-attempt history, verified Meta/TikTok/WhatsApp webhooks, provider health, and active rate-limit visibility;
 - WhatsApp Business contacts with explicit consent/eligibility, approved-template synchronization, scheduled campaigns, recipient/message state, and duplicate-send-safe execution;
 - month/week/day social publishing calendar with Previous/Today/Next navigation;
@@ -223,6 +223,12 @@ WHATSAPP_GRAPH_API_VERSION=v26.0
 Srocial does not automatically load `.env` files. Supply values through the shell, process manager, container, or deployment environment. Provider credentials, bootstrap administrator credentials, encryption keys, app/session secrets, database credentials, object-storage credentials, and WhatsApp access tokens are server-only.
 
 `TRUSTED_PROXY_IPS` is an exact comma-separated IPv4/IPv6 allowlist. Leave it empty unless Srocial is directly connected to a reverse proxy you control and intend to trust for `X-Forwarded-For`. See `docs/V26_DISTRIBUTED_RATE_LIMITING.md`.
+
+## Queue Browser Edge Coverage — V27
+
+V27 closes the remaining repository-tracked Queue browser gap without changing production Queue behavior. The Chrome/CDP E2E driver can now observe and handle native JavaScript dialogs directly instead of replacing `window.prompt` in the page under test.
+
+The real-browser suite exercises accepted, invalid, and dismissed individual Reschedule prompts, verifies that invalid/dismissed prompts do not mutate persisted schedule state, and verifies individual Cancel from the Queue through rendered `cancelled` state and persisted `CANCELLED` publication/job state. This closes `SR-P001`; live OAuth/provider publishing/webhook/WhatsApp delivery/analytics verification remains separately tracked because those checks require real provider prerequisites.
 
 ## Browser E2E Operator Surfaces — V24/V25 Hardening
 
@@ -556,11 +562,11 @@ find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 timeout --signal=TERM --kill-after=5s 75s npm run test:e2e
 ```
 
-V26 code-only exact-head run `35072527173` on commit `7a2d2b485d0ee162567e188069f5c84f346a9869` passed **464/464 Node tests**, applied migrations through `010_rate_limit_buckets.sql`, passed JavaScript syntax, and passed all **12/12 real-Chrome E2E scenarios**. Documentation/tracker promotion is followed by a fresh exact-head release run before PR merge.
+V27 code-only GREEN run `35074429461` passed **464/464 Node tests**, applied migrations through `010_rate_limit_buckets.sql`, passed JavaScript syntax, and passed all **14/14 real-Chrome E2E scenarios**, including the native Reschedule prompt paths and individual Queue Cancel. A fresh exact-final-head gate is required after documentation/tracker promotion before PR merge.
 
 Deterministic coverage includes persisted authentication/session bootstrap and revocation; Viewer/Editor/Manager/Admin authorization; JSON/PostgreSQL user/session parity; concurrent last-active-Admin protection; PostgreSQL persistence/concurrency/migrations; trusted-proxy client attribution; cross-instance PostgreSQL rate-limit enforcement; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature/webhook/provider telemetry; V17 WhatsApp behavior; V18 atomic schedule/lifecycle/calendar/queue behavior; V19 drafts/reusable resources/overrides/compatibility/previews; V20 JSON/PostgreSQL analytics persistence, latest-snapshot aggregation, provider normalization/scopes, protected analytics API behavior, refresh safety/bounds, and Analytics UI wiring.
 
-Real-browser coverage independently exercises login/logout, role-specific UI visibility, authoritative server `403` boundaries, Admin user lifecycle/session revocation, Composer workflows, local media lifecycle, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, and Queue/Calendar lifecycle actions. Remaining actual-browser dialog/edge coverage is tracked under `SR-P001`, while real-provider verification stays in the provider-specific `VERIFY` items.
+Real-browser coverage independently exercises login/logout, role-specific UI visibility, authoritative server `403` boundaries, Admin user lifecycle/session revocation, Composer workflows, local media lifecycle, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, Queue/Calendar lifecycle actions, native individual Reschedule prompt accept/invalid/dismiss outcomes, and individual Cancel persistence/rendering. `SR-P001` is resolved by V27; real-provider verification stays in the provider-specific `VERIFY` items.
 
 Automated CI still cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, provider analytics permissions/metric availability, or verification of an operator's real reverse-proxy/load-balancer topology. The trusted proxy list therefore remains an explicit deployment responsibility.
 
@@ -617,18 +623,17 @@ srocial/
 
 ## Development Direction
 
-V21 closed source roadmap item **100 — Users / Roles**, the final major product feature in the supplied source feature list. Post-roadmap work is now driven by production-readiness gaps in `PROBLEMS.md` rather than inventing source item 101.
+V21 closed source roadmap item **100 — Users / Roles**, the final major product feature in the supplied source feature list. Post-roadmap work is driven by concrete production-readiness gaps in `PROBLEMS.md`; Srocial does not invent source item 101 or a synthetic next product milestone.
 
 Completed post-roadmap milestones now include:
 
-1. **V22/V23/V24 — Browser E2E expansion (`SR-P001`)** — broad real-browser coverage across authentication, critical content workflows, Accounts, WhatsApp, Operations, Analytics, and Queue/Calendar operator surfaces; a small edge/dialog remainder stays tracked under `SR-P001`;
+1. **V22/V23/V24/V27 — Browser E2E expansion (`SR-P001`)** — real-browser coverage across authentication/RBAC, critical content workflows, Accounts, WhatsApp, Operations, Analytics, Queue/Calendar operator surfaces, drag/drop, native individual Reschedule prompt outcomes, and individual Cancel; V27 closes the remaining tracked dialog/edge gap;
 2. **V25 — Account-Bound Scheduling Migration (`SR-P007`)** — account-bound `destinations` are the default and legacy platform-only scheduling is isolated behind an explicit default-off compatibility gate;
 3. **V26 — Distributed/Trusted-Proxy Rate Limiting (`SR-P006`)** — shared PostgreSQL enforcement plus explicit trusted-proxy client attribution.
 
-The next internally actionable development is:
+There is currently no remaining source-defined or repository-tracked internally actionable milestone to label V28. The remaining active work is external verification:
 
-1. **V27 — Queue Browser Edge Coverage (`SR-P001`)** — directly exercise the remaining individual prompt-reschedule/cancel dialog variants and close any page-specific browser edge found;
-2. **Live provider verification (`SR-P002`, `SR-P003`, `SR-P004`, `SR-P010`)** — complete TikTok publishing, provider webhook, WhatsApp Cloud API, and provider analytics checks when approved apps, credentials, sender identities, permissions, and public HTTPS callbacks are available.
+1. **Live provider verification (`SR-P002`, `SR-P003`, `SR-P004`, `SR-P010`)** — complete TikTok publishing, provider webhook, WhatsApp Cloud API, and provider analytics checks when approved apps, credentials, sender identities, permissions, verified media/public callback domains, and public HTTPS callbacks are available.
 
 The historical source roadmap's version labels diverged from live implementation order. Live V18 closed Calendar/Queue/Post Management, V19 closed Drafts/Autosave/Templates/Reusable Content/Per-Platform Composer, V20 closed Basic Social Analytics, V21 closed Users/Roles, and V22 onward is production-readiness work.
 
