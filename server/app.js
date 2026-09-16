@@ -484,7 +484,7 @@ export function createRequestHandler({
 
       if (request.method === 'GET' && url.pathname === '/api/accounts') {
         if (!repository) return sendJson(response, 503, { error: 'repository_unavailable' });
-        const result = await listAccountsPayload(repository);
+        const result = await listAccountsPayload(repository, { now: now() });
         return sendJson(response, result.statusCode, result.payload);
       }
 
