@@ -4,7 +4,7 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, analyt
 
 Instagram, Facebook Pages, Threads, and TikTok share the social publishing and analytics runtime. WhatsApp Business is intentionally a separate contacts/templates/campaign subsystem that reuses the same repository, scheduler infrastructure, verified-webhook layer, and Operations Center.
 
-## Current Status — V23
+## Current Status — V26
 
 The runnable foundation now includes:
 
@@ -21,14 +21,14 @@ The runnable foundation now includes:
 - atomic WhatsApp campaign/recipient/job schedule creation for JSON and PostgreSQL;
 - opt-in persisted multi-user authentication with Viewer, Editor, Manager, and Admin roles;
 - salted `scrypt` password hashing and opaque revocable HttpOnly application sessions whose raw tokens are never persisted;
-- centralized server-side RBAC, same-origin mutation protection, atomic last-active-Admin protection, and process-local rate limiting;
+- centralized server-side RBAC, same-origin mutation protection, atomic last-active-Admin protection, secure trusted-proxy-aware client attribution, and shared PostgreSQL login/API rate limiting for multi-instance production deployments;
 - Admin user creation, role/status management, password rotation, session revocation, and immediate disabled-user invalidation;
-- real headless-Chrome CI coverage for authentication/RBAC/Admin-user flows plus V19 draft/reusable-content/override/compatibility/preview workflows, local media upload/reuse/delete, account-bound Facebook scheduling, and Queue/Calendar bulk lifecycle actions;
+- real headless-Chrome CI coverage for authentication/RBAC/Admin-user flows plus draft/reusable-content/override/compatibility/preview workflows, local media upload/reuse/delete, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, and Queue/Calendar lifecycle actions;
 - publication-attempt history, verified Meta/TikTok/WhatsApp webhooks, provider health, and active rate-limit visibility;
 - WhatsApp Business contacts with explicit consent/eligibility, approved-template synchronization, scheduled campaigns, recipient/message state, and duplicate-send-safe execution;
 - month/week/day social publishing calendar with Previous/Today/Next navigation;
 - drag-to-reschedule with browser-local time-of-day preservation;
-- operational Queue filters by platform/account/state;
+- operational Queue filters by platform/account/status;
 - state-safe edit, reschedule, cancel, duplicate, retry, bulk cancel, and bulk reschedule actions;
 - server-persisted drafts with delayed autosave, recovery, optimistic revisions, and stale-write conflict protection;
 - reusable caption templates, hashtag collections, and saved destination groups;
@@ -38,6 +38,7 @@ The runnable foundation now includes:
 - normalized Analytics KPIs for views/reach/likes/comments/shares/saves when providers support them;
 - date/platform/account Analytics filtering, daily series, per-post performance, freshness visibility, and bounded/manual refresh;
 - protected Operations, Analytics, WhatsApp, post-lifecycle, composer-workflow, and user-management APIs plus browser UI;
+- account-bound scheduling as the default contract; legacy platform-only scheduling is isolated behind a default-off compatibility gate;
 - GitHub Actions coverage against PostgreSQL 17 plus a separate bounded real-browser Chrome gate.
 
 Safe execution defaults remain:
@@ -48,7 +49,7 @@ ALLOW_REAL_PUBLISH=false
 ALLOW_REAL_WHATSAPP=false
 ```
 
-The scheduler starts only when `SCHEDULER_ENABLED=true` and at least one execution gate is explicitly enabled. Social jobs and WhatsApp campaign jobs are claimed independently, so enabling WhatsApp cannot trigger social publishing and vice versa. Draft/resource/compatibility writes, Analytics refreshes, and user-management actions never enqueue scheduler work.
+The scheduler starts only when `SCHEDULER_ENABLED=true` and at least one execution gate is explicitly enabled. Social jobs and WhatsApp campaign jobs are claimed independently, so enabling WhatsApp cannot trigger social publishing and vice versa. Draft/resource/compatibility writes, Analytics refreshes, user-management actions, and auth rate-limit writes never enqueue scheduler work.
 
 ## Supported Channels
 
@@ -82,6 +83,7 @@ Browser
 Node HTTP application
   |
   +--> Authentication + centralized RBAC boundary
+  +--> Trusted-proxy client attribution
   +--> User Management Service
   +--> Composer Workflow Service
   +--> Compatibility Service
@@ -96,6 +98,7 @@ Node HTTP application
 Repository (JSON | PostgreSQL)
   |
   +--> app users / hashed sessions
+  +--> PostgreSQL shared rate_limit_buckets
   +--> composer_drafts / reusable composer resources
   +--> atomic social scheduling graph
   +--> atomic lifecycle mutation units
@@ -118,7 +121,7 @@ Repository (JSON | PostgreSQL)
 
 Analytics provider adapters are separate from publishing execution. Analytics refresh reads already-published provider content and appends snapshots; it does not publish content or create/claim scheduler jobs.
 
-Provider-specific behavior remains inside provider/messaging modules. SQL stays under `server/db/`. Drafts, reusable resources, analytics snapshots, users, and application sessions are management/security data and do not form a second scheduler. Calendar and Queue remain operator views over the existing social records.
+Provider-specific behavior remains inside provider/messaging modules. SQL stays under `server/db/`. Drafts, reusable resources, analytics snapshots, users, application sessions, and rate-limit buckets are management/security data and do not form a second scheduler. Calendar and Queue remain operator views over the existing social records.
 
 ## Technology
 
@@ -180,12 +183,18 @@ Important settings are documented in `.env.example`.
 SCHEDULER_ENABLED=false
 ALLOW_REAL_PUBLISH=false
 ALLOW_REAL_WHATSAPP=false
+ALLOW_LEGACY_PLATFORM_SCHEDULING=false
 PUBLIC_BASE_URL=http://127.0.0.1:3000
 
 APP_AUTH_ENABLED=false
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=
 SESSION_SECRET=<at-least-32-random-characters>
+API_RATE_LIMIT_WINDOW_MS=60000
+API_RATE_LIMIT_MAX=120
+LOGIN_RATE_LIMIT_WINDOW_MS=900000
+LOGIN_RATE_LIMIT_MAX=10
+TRUSTED_PROXY_IPS=
 
 DATABASE_DRIVER=json
 DATABASE_URL=postgres://...
@@ -213,15 +222,19 @@ WHATSAPP_GRAPH_API_VERSION=v26.0
 
 Srocial does not automatically load `.env` files. Supply values through the shell, process manager, container, or deployment environment. Provider credentials, bootstrap administrator credentials, encryption keys, app/session secrets, database credentials, object-storage credentials, and WhatsApp access tokens are server-only.
 
+`TRUSTED_PROXY_IPS` is an exact comma-separated IPv4/IPv6 allowlist. Leave it empty unless Srocial is directly connected to a reverse proxy you control and intend to trust for `X-Forwarded-For`. See `docs/V26_DISTRIBUTED_RATE_LIMITING.md`.
+
+## Browser E2E Operator Surfaces — V24/V25 Hardening
+
+V24 expanded the real-browser gate across deterministic Accounts state/disconnect/sanitized OAuth-result handling, WhatsApp contact/campaign/opt-out workflows, Operations rendering/refresh, Analytics rendering/filtering, Queue state filters/edit/duplicate/retry, and Calendar drag/drop rescheduling. External execution gates remain disabled in browser fixtures.
+
+V25 moved normal scheduling to explicit account-bound `destinations` and retained legacy platform-only scheduling only behind `ALLOW_LEGACY_PLATFORM_SCHEDULING=true`. A follow-up hardened the Chrome/CDP cold-start budget after the exact merged-main run exposed an intermittent 10-second startup race. The guarded default is now 20 seconds with a validated environment override.
+
 ## Browser E2E Critical Content Workflow — V23
 
-V23 extends the V22 real-browser foundation into the critical social-content workflow. The same isolated Node.js + headless-Chrome/CDP harness now verifies server-persisted draft autosave/recovery/stale-revision conflict behavior, reusable caption/hashtag/destination resources, Facebook caption/media overrides, compatibility/previews, local file upload and Media Library reuse/deletion, account-bound text-only Facebook scheduling, and Queue/Calendar bulk reschedule/cancel behavior.
+V23 extends the V22 real-browser foundation into the critical social-content workflow. The same isolated Node.js + headless-Chrome/CDP harness verifies server-persisted draft autosave/recovery/stale-revision conflict behavior, reusable caption/hashtag/destination resources, Facebook caption/media overrides, compatibility/previews, local file upload and Media Library reuse/deletion, account-bound text-only Facebook scheduling, and Queue/Calendar bulk reschedule/cancel behavior.
 
 Browser fixtures may seed deterministic connected-account metadata, but they contain no live provider token and make no provider HTTP request. The scheduler and both external execution gates remain disabled.
-
-V23 browser testing also exposed and fixed two product-state defects: Queue bulk reschedule could leave a visibly checked row while its internal selection set was empty, and Media Library deletion success feedback was overwritten by the immediate refresh. Both behaviors are now regression-covered.
-
-`SR-P001` remains `PARTIAL`. Remaining real-browser work includes Accounts/OAuth management, WhatsApp, Operations, Analytics, Calendar drag/drop, and additional edit/duplicate/retry/filter lifecycle paths. Live provider verification remains separately tracked.
 
 See `docs/V23_BROWSER_CONTENT_E2E.md`.
 
@@ -339,9 +352,19 @@ GET    /api/whatsapp/campaigns
 POST   /api/whatsapp/campaigns
 ```
 
-Authenticated mutations are same-origin checked. Login/API rate limits are process-local and intentionally do not trust forwarded IP headers. Multi-instance/shared limiting and trusted-proxy attribution remain tracked under `SR-P006`.
+Authenticated mutations are same-origin checked. Client attribution and shared production enforcement are described in V26 below.
 
 See `docs/V21_USERS_ROLES.md`.
+
+## Distributed Rate Limiting & Trusted Proxies — V26
+
+V26 resolves the prior process-local production limitation without introducing a second infrastructure dependency.
+
+With `TRUSTED_PROXY_IPS=` left empty, Srocial ignores `X-Forwarded-For` and rate-limits by the direct socket peer. If the direct peer is explicitly listed as a trusted proxy, Srocial evaluates the forwarding chain from right to left, skips trusted proxy hops, and uses the nearest untrusted address as the client identity. Malformed forwarding data falls back to the direct peer instead of being accepted ambiguously. Invalid trusted-proxy configuration fails closed when application authentication is constructed.
+
+PostgreSQL production deployments store fixed-window login/API counters in `rate_limit_buckets`. Consumption uses a transaction and `FOR UPDATE` row serialization, so separate Srocial application instances enforce the same bucket atomically. JSON/local development retains the existing process-local limiter while sharing the same trusted-proxy attribution logic.
+
+See `docs/V26_DISTRIBUTED_RATE_LIMITING.md`.
 
 ## Social Accounts and Scheduling
 
@@ -380,7 +403,7 @@ A `null` content override inherits the master post content. An explicit empty me
 
 Social scheduling persists the post, master media, publications, and executable scheduler jobs as one all-or-nothing repository operation. PostgreSQL uses a database transaction; the JSON backend persists an isolated candidate snapshot before publishing it as active state.
 
-Legacy platform-only scheduling remains available for backward compatibility and is explicitly tracked under `SR-P007` because it can create unbound publications.
+V25 makes account-bound `destinations` the normal scheduling contract. Legacy platform-only scheduling is rejected before persistence unless an operator explicitly enables the default-off `ALLOW_LEGACY_PLATFORM_SCHEDULING=true` compatibility gate. Existing historical unbound rows remain readable; Srocial does not guess an account and backfill them.
 
 ## Analytics & Reporting — V20
 
@@ -477,7 +500,7 @@ DATABASE_DRIVER=postgres
 DATABASE_URL=postgres://user:password@host:5432/database
 ```
 
-Migrations are ordered, checksum-recorded, transaction-protected, and guarded by a PostgreSQL advisory lock. Historical migrations are immutable. Scheduler claims use `FOR UPDATE SKIP LOCKED` so multiple workers cannot claim the same due job.
+Migrations are ordered, checksum-recorded, transaction-protected, and guarded by a PostgreSQL advisory lock. Historical migrations are immutable. Scheduler claims use `FOR UPDATE SKIP LOCKED` so multiple workers cannot claim the same due job. V26 rate-limit consumption uses a separate per-bucket `FOR UPDATE` transaction so multiple application instances cannot each grant an independent allowance.
 
 Recent migrations:
 
@@ -487,9 +510,10 @@ Recent migrations:
 007_composer_workflows.sql
 008_analytics.sql
 009_users_roles.sql
+010_rate_limit_buckets.sql
 ```
 
-Migration 007 adds persisted V19 draft/reusable-resource records and publication caption/media override fields. Migration 008 adds append-only V20 publication metric snapshots and provider/account/publication capture indexes. Migration 009 adds persisted V21 users and revocable application sessions.
+Migration 007 adds persisted V19 draft/reusable-resource records and publication caption/media override fields. Migration 008 adds append-only V20 publication metric snapshots and provider/account/publication capture indexes. Migration 009 adds persisted V21 users and revocable application sessions. Migration 010 adds V26 shared PostgreSQL fixed-window rate-limit buckets.
 
 ## Data Model
 
@@ -498,6 +522,7 @@ Core runtime records include:
 ```text
 app_users
 app_user_sessions
+rate_limit_buckets
 accounts
 posts
 media
@@ -531,13 +556,13 @@ find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 timeout --signal=TERM --kill-after=5s 75s npm run test:e2e
 ```
 
-V23 implementation exact-head run `34972361989` on commit `98601015a31e1129a2d6e9999d9d1050beb2c531` passed **447/447 Node tests**, applied migrations through `009_users_roles.sql`, passed JavaScript syntax, and passed all **6/6 real-Chrome E2E scenarios**. Documentation/tracker promotion is followed by a fresh exact-head release run before PR/merge.
+V26 code-only exact-head run `35072527173` on commit `7a2d2b485d0ee162567e188069f5c84f346a9869` passed **464/464 Node tests**, applied migrations through `010_rate_limit_buckets.sql`, passed JavaScript syntax, and passed all **12/12 real-Chrome E2E scenarios**. Documentation/tracker promotion is followed by a fresh exact-head release run before PR merge.
 
-Deterministic coverage includes persisted authentication/session bootstrap and revocation; Viewer/Editor/Manager/Admin authorization; JSON/PostgreSQL user/session parity; concurrent last-active-Admin protection; PostgreSQL persistence/concurrency/migrations; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature/webhook/provider telemetry; V17 WhatsApp behavior; V18 atomic schedule/lifecycle/calendar/queue behavior; V19 drafts/reusable resources/overrides/compatibility/previews; V20 JSON/PostgreSQL analytics persistence, latest-snapshot aggregation, provider normalization/scopes, protected analytics API behavior, refresh safety/bounds, and Analytics UI wiring.
+Deterministic coverage includes persisted authentication/session bootstrap and revocation; Viewer/Editor/Manager/Admin authorization; JSON/PostgreSQL user/session parity; concurrent last-active-Admin protection; PostgreSQL persistence/concurrency/migrations; trusted-proxy client attribution; cross-instance PostgreSQL rate-limit enforcement; media lifecycle; Instagram/Facebook/Threads/TikTok provider behavior; V16 signature/webhook/provider telemetry; V17 WhatsApp behavior; V18 atomic schedule/lifecycle/calendar/queue behavior; V19 drafts/reusable resources/overrides/compatibility/previews; V20 JSON/PostgreSQL analytics persistence, latest-snapshot aggregation, provider normalization/scopes, protected analytics API behavior, refresh safety/bounds, and Analytics UI wiring.
 
-Real-browser V23 coverage independently exercises login/logout, role-specific UI visibility, authoritative server `403` boundaries, Admin user lifecycle/session revocation, V19 Composer workflows, local media lifecycle, account-bound text-only scheduling, and Queue/Calendar bulk lifecycle actions. Remaining actual-browser coverage is tracked under `SR-P001` as `PARTIAL`, while real-provider verification stays in the provider-specific `VERIFY` items.
+Real-browser coverage independently exercises login/logout, role-specific UI visibility, authoritative server `403` boundaries, Admin user lifecycle/session revocation, Composer workflows, local media lifecycle, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, and Queue/Calendar lifecycle actions. Remaining actual-browser dialog/edge coverage is tracked under `SR-P001`, while real-provider verification stays in the provider-specific `VERIFY` items.
 
-Automated CI still cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, provider analytics permissions/metric availability, or a multi-instance shared rate limiter.
+Automated CI still cannot substitute for approved provider applications, live credentials, real sender identities, public HTTPS callbacks, provider analytics permissions/metric availability, or verification of an operator's real reverse-proxy/load-balancer topology. The trusted proxy list therefore remains an explicit deployment responsibility.
 
 ## Repository Structure
 
@@ -550,30 +575,18 @@ srocial/
 |- updaterules.md
 |- client/
 |  |- css/pages/
-|  |  |- analytics.css
-|  |  |- composer.css
-|  |  |- queue-calendar.css
-|  |  `- users.css
 |  `- js/
 |     |- api/
-|     |  |- analytics-api.js
-|     |  |- composer-workflows-api.js
-|     |  `- users-api.js
 |     |- components/
-|     |  |- calendar.js
-|     |  `- platform-preview.js
 |     `- pages/
-|        |- analytics.js
-|        |- composer.js
-|        |- composer-workflows.js
-|        |- queue-calendar.js
-|        `- users.js
 |- server/
 |  |- analytics/
 |  |- auth/
 |  |- db/
-|  |  `- migrations/009_users_roles.sql
+|  |  |- migrations/010_rate_limit_buckets.sql
+|  |  `- postgres-rate-limits.js
 |  |- http/
+|  |  `- client-address.js
 |  |- media/
 |  |- messaging/whatsapp/
 |  |- operations/
@@ -584,10 +597,6 @@ srocial/
 |  `- webhooks/
 |- tests/
 |  `- e2e/
-|     |- auth-rbac.e2e.js
-|     |- browser-driver.js
-|     |- content-workflow.e2e.js
-|     `- srocial-server.js
 |- docs/
 |  |- V12_MEDIA_STORAGE.md
 |  |- V13_INSTAGRAM_TOKEN_REFRESH.md
@@ -600,23 +609,28 @@ srocial/
 |  |- V20_ANALYTICS_REPORTING.md
 |  |- V21_USERS_ROLES.md
 |  |- V22_BROWSER_E2E.md
-|  `- V23_BROWSER_CONTENT_E2E.md
+|  |- V23_BROWSER_CONTENT_E2E.md
+|  `- V26_DISTRIBUTED_RATE_LIMITING.md
 |- .env.example
 `- package.json
 ```
 
 ## Development Direction
 
-V21 closed source roadmap item **100 — Users / Roles**. Item 100 is the final major product feature in the supplied source feature list. Source items 91–97 substantially overlap the already-implemented V16 Operations Center; item 98 is V20 Analytics; item 99 is V17 WhatsApp Business. V22 therefore began post-roadmap production-readiness work rather than inventing a source item 101.
+V21 closed source roadmap item **100 — Users / Roles**, the final major product feature in the supplied source feature list. Post-roadmap work is now driven by production-readiness gaps in `PROBLEMS.md` rather than inventing source item 101.
 
-V23 extends `SR-P001` across the critical content workflow and keeps the item `PARTIAL` only for operator surfaces not yet covered in the real browser. The next development order is:
+Completed post-roadmap milestones now include:
 
-1. **V24 — Browser E2E Operator Surfaces (`SR-P001`)** — cover deterministic Accounts connect/reconnect/disconnect UI state, WhatsApp operator workflows with execution disabled, Operations Center, V20 Analytics, Calendar drag/drop, and remaining edit/duplicate/retry/filter lifecycle paths without pretending to verify live providers;
-2. **Legacy scheduling cleanup (`SR-P007`)** — decide whether platform-only unbound publication compatibility is still required and migrate/remove it if not;
-3. **Distributed/trusted-proxy rate limiting (`SR-P006`)** — add a shared limiter and explicit trusted-proxy client attribution before multi-instance/proxy-fronted production deployment;
-4. **Live provider verification (`SR-P002`, `SR-P003`, `SR-P004`, `SR-P010`)** — complete approved-app/provider checks where real credentials and public callbacks are available.
+1. **V22/V23/V24 — Browser E2E expansion (`SR-P001`)** — broad real-browser coverage across authentication, critical content workflows, Accounts, WhatsApp, Operations, Analytics, and Queue/Calendar operator surfaces; a small edge/dialog remainder stays tracked under `SR-P001`;
+2. **V25 — Account-Bound Scheduling Migration (`SR-P007`)** — account-bound `destinations` are the default and legacy platform-only scheduling is isolated behind an explicit default-off compatibility gate;
+3. **V26 — Distributed/Trusted-Proxy Rate Limiting (`SR-P006`)** — shared PostgreSQL enforcement plus explicit trusted-proxy client attribution.
 
-The historical source roadmap's version labels diverged from live implementation order. Live V18 closed Calendar/Queue/Post Management, V19 closed Drafts/Autosave/Templates/Reusable Content/Per-Platform Composer, V20 closed Basic Social Analytics, V21 closed Users/Roles, V22 added the first real-browser production-readiness gate, and V23 extends that gate across the critical social-content workflow.
+The next internally actionable development is:
+
+1. **V27 — Queue Browser Edge Coverage (`SR-P001`)** — directly exercise the remaining individual prompt-reschedule/cancel dialog variants and close any page-specific browser edge found;
+2. **Live provider verification (`SR-P002`, `SR-P003`, `SR-P004`, `SR-P010`)** — complete TikTok publishing, provider webhook, WhatsApp Cloud API, and provider analytics checks when approved apps, credentials, sender identities, permissions, and public HTTPS callbacks are available.
+
+The historical source roadmap's version labels diverged from live implementation order. Live V18 closed Calendar/Queue/Post Management, V19 closed Drafts/Autosave/Templates/Reusable Content/Per-Platform Composer, V20 closed Basic Social Analytics, V21 closed Users/Roles, and V22 onward is production-readiness work.
 
 ## Development Rules
 

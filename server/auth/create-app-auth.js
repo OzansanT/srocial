@@ -1,11 +1,28 @@
 import { readAppAuthConfig } from './app-auth-config.js';
 import { createRepositorySessionManager } from './repository-session-manager.js';
 import { createUserService } from './user-service.js';
+import { parseTrustedProxyAddresses, resolveClientAddress } from '../http/client-address.js';
 import { createFixedWindowLimiter } from '../http/fixed-window-limiter.js';
 import { isSameOriginMutation } from '../http/request-origin.js';
 
-function clientKey(request) {
-  return String(request?.socket?.remoteAddress ?? 'unknown');
+function createRateLimiter({ repository, scope, config, now }) {
+  if (typeof repository?.consumeRateLimit === 'function') {
+    return Object.freeze({
+      consume(key) {
+        return repository.consumeRateLimit({
+          scope,
+          key,
+          windowMs: config.windowMs,
+          max: config.max,
+          nowMs: now().getTime()
+        });
+      }
+    });
+  }
+  return createFixedWindowLimiter({
+    ...config,
+    now: () => now().getTime()
+  });
 }
 
 export function createAppAuth({ env = process.env, repository = null, now = () => new Date() } = {}) {
@@ -30,6 +47,8 @@ export function createAppAuth({ env = process.env, repository = null, now = () =
 
   if (!repository) throw new Error('APP_AUTH_REPOSITORY_REQUIRED');
 
+  const trustedProxyAddresses = parseTrustedProxyAddresses(env.TRUSTED_PROXY_IPS);
+  const clientKey = (request) => resolveClientAddress(request, trustedProxyAddresses);
   const users = createUserService({ repository, now });
   const sessions = createRepositorySessionManager({
     repository,
@@ -38,13 +57,17 @@ export function createAppAuth({ env = process.env, repository = null, now = () =
     secure: config.secureCookies,
     now
   });
-  const apiLimiter = createFixedWindowLimiter({
-    ...config.apiRateLimit,
-    now: () => now().getTime()
+  const apiLimiter = createRateLimiter({
+    repository,
+    scope: 'api',
+    config: config.apiRateLimit,
+    now
   });
-  const loginLimiter = createFixedWindowLimiter({
-    ...config.loginRateLimit,
-    now: () => now().getTime()
+  const loginLimiter = createRateLimiter({
+    repository,
+    scope: 'login',
+    config: config.loginRateLimit,
+    now
   });
 
   return Object.freeze({
