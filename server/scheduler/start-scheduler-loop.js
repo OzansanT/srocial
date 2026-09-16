@@ -23,6 +23,11 @@ function allowedTypes({ allowRealPublish, allowRealWhatsApp }) {
   return types;
 }
 
+function timestamp(now) {
+  const value = now();
+  return (value instanceof Date ? value : new Date(value)).toISOString();
+}
+
 export function startSchedulerLoop({
   enabled = false,
   allowRealPublish = false,
@@ -37,22 +42,48 @@ export function startSchedulerLoop({
   tick,
   setIntervalImpl = setInterval,
   clearIntervalImpl = clearInterval,
-  logger = console
+  logger = console,
+  now = () => new Date()
 } = {}) {
+  const configured = toEnabled(enabled);
   const allowedJobTypes = allowedTypes({ allowRealPublish, allowRealWhatsApp });
-  if (!toEnabled(enabled) || allowedJobTypes.length === 0) {
-    return { started: false, stop() {} };
+  const normalizedInterval = normalizeInterval(intervalMs);
+  let running = false;
+  let stopped = true;
+  let inFlight = false;
+  let lastTickStartedAt = null;
+  let lastSuccessfulTickAt = null;
+  let lastFailedTickAt = null;
+  let lastErrorCode = null;
+
+  function status() {
+    return {
+      configured,
+      running,
+      stopped,
+      inFlight,
+      intervalMs: normalizedInterval,
+      lastTickStartedAt,
+      lastSuccessfulTickAt,
+      lastFailedTickAt,
+      lastErrorCode
+    };
+  }
+
+  if (!configured || allowedJobTypes.length === 0) {
+    return { started: false, status, stop() {} };
   }
   if (!repository || !registry || typeof tick !== 'function') {
     throw new Error('SCHEDULER_RUNTIME_DEPENDENCIES_REQUIRED');
   }
 
-  let inFlight = false;
-  let stopped = false;
+  running = true;
+  stopped = false;
 
   async function runOnce() {
     if (stopped || inFlight) return;
     inFlight = true;
+    lastTickStartedAt = timestamp(now);
     try {
       await tick({
         repository,
@@ -62,23 +93,29 @@ export function startSchedulerLoop({
         tokenCipher,
         allowedJobTypes,
         workerId,
-        now: new Date()
+        now: new Date(lastTickStartedAt)
       });
+      lastSuccessfulTickAt = timestamp(now);
+      lastErrorCode = null;
     } catch (error) {
-      logger?.error?.('Scheduler tick failed', { code: error?.code ?? 'SCHEDULER_TICK_ERROR' });
+      lastFailedTickAt = timestamp(now);
+      lastErrorCode = error?.code ?? 'SCHEDULER_TICK_ERROR';
+      logger?.error?.('Scheduler tick failed', { code: lastErrorCode });
     } finally {
       inFlight = false;
     }
   }
 
-  const timer = setIntervalImpl(runOnce, normalizeInterval(intervalMs));
+  const timer = setIntervalImpl(runOnce, normalizedInterval);
 
   return {
     started: true,
     workerId,
+    status,
     stop() {
       if (stopped) return;
       stopped = true;
+      running = false;
       clearIntervalImpl(timer);
     }
   };
