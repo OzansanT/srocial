@@ -383,6 +383,30 @@ export async function launchBrowser() {
     throw error;
   }
 
+  async function handleNextDialog({
+    accept = true,
+    promptText,
+    type,
+    message,
+    timeoutMs = DEFAULT_WAIT_TIMEOUT_MS
+  } = {}) {
+    const dialog = await cdp.waitForEvent('Page.javascriptDialogOpening', timeoutMs);
+    const mismatch = [];
+    if (type !== undefined && dialog.type !== String(type)) mismatch.push('type');
+    if (message !== undefined && dialog.message !== String(message)) mismatch.push('message');
+
+    const params = { accept: Boolean(accept) };
+    if (accept && promptText !== undefined) params.promptText = String(promptText);
+    await cdp.send('Page.handleJavaScriptDialog', params);
+
+    if (mismatch.length) throw new Error(`E2E_DIALOG_MISMATCH_${mismatch.join('_').toUpperCase()}`);
+    return {
+      type: dialog.type ?? null,
+      message: dialog.message ?? '',
+      defaultPrompt: dialog.defaultPrompt ?? ''
+    };
+  }
+
   async function navigate(url) {
     const targetUrl = String(url);
     const previousUrl = await evaluate('location.href').catch(() => null);
@@ -446,6 +470,7 @@ export async function launchBrowser() {
     navigate,
     evaluate,
     waitFor,
+    handleNextDialog,
     fill,
     click,
     submit,
