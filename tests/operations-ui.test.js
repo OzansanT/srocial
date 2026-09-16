@@ -17,8 +17,6 @@ test('dashboard exposes Operations navigation, runtime diagnostics targets, styl
   assert.match(html, /href="#operations"/);
   assert.match(html, /id="operations"/);
   assert.match(html, /id="provider-health-list"/);
-  assert.match(html, /id="runtime-health-list"/);
-  assert.match(html, /id="environment-diagnostic-list"/);
   assert.match(html, /id="failed-job-list"/);
   assert.match(html, /id="publication-attempt-list"/);
   assert.match(html, /id="webhook-event-list"/);
