@@ -8,6 +8,7 @@ export { MediaStoreError } from './media-format.js';
 
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
 const DEFAULT_TOTAL_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+const WRITE_PERMISSION_ERRORS = new Set(['EACCES', 'EPERM', 'EROFS']);
 
 function normalizePositiveBytes(value, fallback) {
   const parsed = Number.parseInt(String(value ?? fallback), 10);
@@ -41,6 +42,15 @@ function keyFromUrl(value) {
   } catch {
     return null;
   }
+}
+
+function healthFailure(error) {
+  return {
+    ok: false,
+    backend: 'local',
+    writable: false,
+    errorCode: WRITE_PERMISSION_ERRORS.has(error?.code) ? 'MEDIA_STORAGE_READ_ONLY' : 'MEDIA_STORAGE_UNAVAILABLE'
+  };
 }
 
 export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes = DEFAULT_MAX_BYTES, totalMaxBytes = DEFAULT_TOTAL_MAX_BYTES } = {}) {
@@ -96,6 +106,24 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
       remainingBytes: Math.max(0, totalByteLimit - usedBytes),
       count: assets.length
     };
+  }
+
+  async function healthCheck() {
+    const probePath = join(root, `.srocial-health-${randomUUID()}.tmp`);
+    let fileHandle = null;
+    try {
+      await mkdir(root, { recursive: true });
+      fileHandle = await open(probePath, 'wx');
+      await fileHandle.writeFile('ok');
+      return { ok: true, backend: 'local', writable: true, errorCode: null };
+    } catch (error) {
+      return healthFailure(error);
+    } finally {
+      if (fileHandle) {
+        try { await fileHandle.close(); } catch { /* cleanup continues */ }
+      }
+      try { await rm(probePath, { force: true }); } catch { /* never leak local paths */ }
+    }
   }
 
   async function writeValidatedExactKey(key, readable, { contentType } = {}) {
@@ -160,6 +188,8 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
     async initialize() {
       await mkdir(root, { recursive: true });
     },
+
+    healthCheck,
 
     async save(readable, { contentType } = {}) {
       const { format, iterable } = createValidatedMediaIterable(readable, { contentType });
