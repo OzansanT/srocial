@@ -81,65 +81,90 @@ async function targetHasData(executor) {
   return false;
 }
 
-export function createPostgresBackupStore({ pool } = {}) {
-  if (!pool || (typeof pool.query !== 'function' && typeof pool.connect !== 'function')) {
-    throw maintenanceError('BACKUP_POSTGRES_POOL_REQUIRED');
+async function withClient(pool, callback) {
+  if (!pool || typeof pool.connect !== 'function') throw maintenanceError('BACKUP_POSTGRES_POOL_REQUIRED');
+  const client = await pool.connect();
+  try {
+    return await callback(client);
+  } finally {
+    client.release();
   }
+}
+
+export function createPostgresBackupStore({ pool } = {}) {
+  if (!pool || typeof pool.connect !== 'function') throw maintenanceError('BACKUP_POSTGRES_POOL_REQUIRED');
 
   return Object.freeze({
     driver: 'postgres',
 
     async exportSnapshot() {
-      if (typeof pool.query !== 'function') throw maintenanceError('BACKUP_POSTGRES_POOL_REQUIRED');
-      const migrations = await targetMigrations(pool);
-      const data = {};
-      for (const table of POSTGRES_BACKUP_TABLES) {
-        const identifier = quoteIdentifier(table);
-        const result = await pool.query(`SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text AS rows_json FROM ${identifier} t`);
-        data[table] = validateRowsJson(result.rows?.[0]?.rows_json ?? '[]');
-      }
-      return { driver: 'postgres', migrations, data };
+      return withClient(pool, async (client) => {
+        let transactionOpen = false;
+        try {
+          await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+          transactionOpen = true;
+          const migrations = await targetMigrations(client);
+          const data = {};
+          for (const table of POSTGRES_BACKUP_TABLES) {
+            const identifier = quoteIdentifier(table);
+            const result = await client.query(`SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text AS rows_json FROM ${identifier} t`);
+            data[table] = validateRowsJson(result.rows?.[0]?.rows_json ?? '[]');
+          }
+          await client.query('COMMIT');
+          transactionOpen = false;
+          return { driver: 'postgres', migrations, data };
+        } catch (error) {
+          if (transactionOpen) {
+            try { await client.query('ROLLBACK'); } catch { /* preserve original failure */ }
+          }
+          throw error;
+        }
+      });
     },
 
     async isEmpty() {
-      if (typeof pool.query !== 'function') throw maintenanceError('BACKUP_POSTGRES_POOL_REQUIRED');
-      return !(await targetHasData(pool));
+      return withClient(pool, async (client) => !(await targetHasData(client)));
     },
 
     async restoreSnapshot(snapshot, { force = false } = {}) {
       const validated = validateSnapshot(snapshot);
-      if (typeof pool.connect !== 'function') throw maintenanceError('BACKUP_POSTGRES_POOL_REQUIRED');
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const migrations = await targetMigrations(client);
-        if (!migrationsEqual(validated.migrations, migrations)) throw maintenanceError('BACKUP_MIGRATION_MISMATCH');
+      return withClient(pool, async (client) => {
+        let transactionOpen = false;
+        try {
+          await client.query('BEGIN');
+          transactionOpen = true;
+          const migrations = await targetMigrations(client);
+          if (!migrationsEqual(validated.migrations, migrations)) throw maintenanceError('BACKUP_MIGRATION_MISMATCH');
 
-        const hasData = await targetHasData(client);
-        if (hasData && !force) throw maintenanceError('RESTORE_TARGET_NOT_EMPTY');
+          const hasData = await targetHasData(client);
+          if (hasData && !force) throw maintenanceError('RESTORE_TARGET_NOT_EMPTY');
 
-        if (force) {
-          for (const table of [...POSTGRES_BACKUP_TABLES].reverse()) {
-            await client.query(`DELETE FROM ${quoteIdentifier(table)}`);
+          await client.query('DELETE FROM "rate_limit_buckets"');
+
+          if (force) {
+            for (const table of [...POSTGRES_BACKUP_TABLES].reverse()) {
+              await client.query(`DELETE FROM ${quoteIdentifier(table)}`);
+            }
           }
-        }
 
-        for (const table of POSTGRES_BACKUP_TABLES) {
-          const rowsJson = validated.data[table];
-          if (JSON.parse(rowsJson).length === 0) continue;
-          const identifier = quoteIdentifier(table);
-          await client.query(
-            `INSERT INTO ${identifier} SELECT * FROM jsonb_populate_recordset(NULL::${identifier}, $1::jsonb)`,
-            [rowsJson]
-          );
+          for (const table of POSTGRES_BACKUP_TABLES) {
+            const rowsJson = validated.data[table];
+            if (JSON.parse(rowsJson).length === 0) continue;
+            const identifier = quoteIdentifier(table);
+            await client.query(
+              `INSERT INTO ${identifier} SELECT * FROM jsonb_populate_recordset(NULL::${identifier}, $1::jsonb)`,
+              [rowsJson]
+            );
+          }
+          await client.query('COMMIT');
+          transactionOpen = false;
+        } catch (error) {
+          if (transactionOpen) {
+            try { await client.query('ROLLBACK'); } catch { /* preserve original failure */ }
+          }
+          throw error;
         }
-        await client.query('COMMIT');
-      } catch (error) {
-        try { await client.query('ROLLBACK'); } catch { /* preserve original failure */ }
-        throw error;
-      } finally {
-        client.release();
-      }
+      });
     },
 
     async close() {}
