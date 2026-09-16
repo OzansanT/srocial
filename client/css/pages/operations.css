@@ -9,6 +9,11 @@
   gap: 1rem;
 }
 
+.operations-diagnostics-grid {
+  padding-bottom: .25rem;
+  border-bottom: 1px solid var(--border-color, #d9d9df);
+}
+
 .operations-group {
   display: grid;
   align-content: start;
@@ -47,6 +52,8 @@
 .operations-provider[data-state="degraded"] .operations-provider__state { color: #9a6700; }
 .operations-provider[data-state="error"] .operations-provider__state { color: #b42318; }
 .operations-provider[data-state="unknown"] .operations-provider__state { color: #667085; }
+.operations-diagnostic[data-severity="warning"] strong { color: #9a6700; }
+.operations-diagnostic[data-severity="error"] strong { color: #b42318; }
 
 .operations-row span,
 .operations-provider small,
