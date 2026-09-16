@@ -176,6 +176,37 @@ export function createS3MediaStore({ endpoint, bucket, prefix = '', publicBaseUr
     };
   }
 
+  async function putValidatedKey(key, readable, { contentType } = {}) {
+    const value = String(key ?? '');
+    const metadata = mediaMetadataFromKey(value);
+    if (!metadata) throw new MediaStoreError('MEDIA_NOT_FOUND');
+
+    const { format, bytes, size } = await collectValidated(readable, contentType, byteLimit);
+    if (format.contentType !== metadata.contentType) throw new MediaStoreError('MEDIA_SIGNATURE_MISMATCH');
+    const usage = await storageUsage();
+    if (usage.usedBytes + size > totalByteLimit) throw new MediaStoreError('MEDIA_STORAGE_QUOTA_EXCEEDED');
+
+    const payloadHash = createHash('sha256').update(bytes).digest('hex');
+    await requestClient.request({
+      method: 'PUT',
+      url: objectUrl(value),
+      headers: {
+        'content-type': metadata.contentType,
+        'content-length': String(size)
+      },
+      body: bytes,
+      payloadHash
+    });
+    return {
+      key: value,
+      type: metadata.type,
+      contentType: metadata.contentType,
+      size,
+      url: publicUrl(publicBase, value),
+      isHttps: publicBase.protocol === 'https:'
+    };
+  }
+
   return {
     async initialize() {},
 
@@ -204,6 +235,10 @@ export function createS3MediaStore({ endpoint, bucket, prefix = '', publicBaseUr
         url: publicUrl(publicBase, key),
         isHttps: publicBase.protocol === 'https:'
       };
+    },
+
+    restore(key, readable, options = {}) {
+      return putValidatedKey(key, readable, options);
     },
 
     list() {
