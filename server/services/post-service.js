@@ -7,7 +7,7 @@ const SOCIAL_PLATFORM_SET = new Set(SOCIAL_PLATFORMS);
 const MEDIA_TYPES = new Set(['image', 'video']);
 const MAX_MEDIA = 10;
 const PROVIDER_MEDIA_CONTRACTS = Object.freeze({
-  instagram: Object.freeze({ label: 'Instagram', min: 1, max: 1 }),
+  instagram: Object.freeze({ label: 'Instagram', min: 1, max: 10 }),
   facebook: Object.freeze({ label: 'Facebook', min: 0, max: 1 }),
   threads: Object.freeze({ label: 'Threads', min: 0, max: 1 }),
   tiktok: Object.freeze({ label: 'TikTok', min: 1, max: 1 })
@@ -91,9 +91,14 @@ function validateProviderMediaCounts(requestedPlatforms, mediaCount, details, fi
   for (const platform of new Set(requestedPlatforms)) {
     const contract = PROVIDER_MEDIA_CONTRACTS[platform];
     if (!contract || (mediaCount >= contract.min && mediaCount <= contract.max)) continue;
-    const message = contract.min === 1 && contract.max === 1
-      ? `${contract.label} currently requires exactly one media item.`
-      : `${contract.label} currently supports at most one media item.`;
+    let message;
+    if (contract.min === 1 && contract.max === 1) {
+      message = `${contract.label} currently requires exactly one media item.`;
+    } else if (contract.min === 0) {
+      message = `${contract.label} currently supports at most ${contract.max} media item${contract.max === 1 ? '' : 's'}.`;
+    } else {
+      message = `${contract.label} currently requires between ${contract.min} and ${contract.max} media items.`;
+    }
     details.push({ field, message });
   }
 }
