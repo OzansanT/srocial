@@ -69,9 +69,9 @@ test('real browser schedules an ordered two-image Instagram carousel', { timeout
   assert.equal(result.status, 200);
   const post = result.payload?.posts?.find((item) => item.caption === CAPTION);
   assert.ok(post?.id);
-  assert.deepEqual(post.media, [
-    { type: 'image', url: FIRST_MEDIA },
-    { type: 'image', url: SECOND_MEDIA }
+  assert.deepEqual(post.media.map(({ type, url, sortOrder }) => ({ type, url, sortOrder })), [
+    { type: 'image', url: FIRST_MEDIA, sortOrder: 0 },
+    { type: 'image', url: SECOND_MEDIA, sortOrder: 1 }
   ]);
   assert.equal(post.destinations?.[0]?.platform, 'instagram');
   assert.equal(post.destinations?.[0]?.accountId, INSTAGRAM.id);
