@@ -4,6 +4,7 @@ import { createComposerWorkflowService } from '../server/services/composer-workf
 
 function repositoryFixture() {
   const accounts = new Map([
+    ['ig-1', { id: 'ig-1', provider: 'instagram', state: 'CONNECTED' }],
     ['fb-1', { id: 'fb-1', provider: 'facebook', state: 'CONNECTED' }],
     ['th-1', { id: 'th-1', provider: 'threads', state: 'CONNECTED' }]
   ]);
@@ -61,4 +62,28 @@ test('compatibility reports effective override lengths and account/media issues 
   assert.equal(threads.captionLength, 501);
   assert.equal(threads.compatible, false);
   assert.ok(threads.issues.some((issue) => issue.code === 'CAPTION_TOO_LONG'));
+});
+
+test('compatibility accepts ordered Instagram carousel media while one-item providers stay bounded', async () => {
+  const service = createComposerWorkflowService({ repository: repositoryFixture() });
+  const media = [
+    { type: 'image', url: 'https://cdn.test/one.jpg' },
+    { type: 'video', url: 'https://cdn.test/two.mp4' }
+  ];
+  const result = await service.compatibility({
+    caption: 'Carousel',
+    scheduledAt: '2026-09-15T10:00:00.000Z',
+    media,
+    destinations: [
+      { platform: 'instagram', accountId: 'ig-1' },
+      { platform: 'facebook', accountId: 'fb-1' }
+    ]
+  }, { now: new Date('2026-09-14T13:00:00.000Z') });
+
+  const instagram = result.destinations.find((item) => item.platform === 'instagram');
+  const facebook = result.destinations.find((item) => item.platform === 'facebook');
+  assert.equal(instagram.compatible, true);
+  assert.equal(instagram.issues.some((issue) => issue.code === 'MEDIA_COUNT_UNSUPPORTED'), false);
+  assert.equal(facebook.compatible, false);
+  assert.equal(facebook.issues.some((issue) => issue.code === 'MEDIA_COUNT_UNSUPPORTED'), true);
 });
