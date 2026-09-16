@@ -3,6 +3,7 @@ import { getTikTokCreatorInfo, listAccounts } from '../api/accounts-api.js';
 import { uploadMedia, describeUploadedMedia } from '../api/media-api.js';
 
 const SOCIAL_PLATFORMS = ['instagram', 'facebook', 'threads', 'tiktok'];
+const MAX_COMPOSER_MEDIA = 10;
 const UPLOAD_ERRORS = Object.freeze({
   unsupported_media_type: 'Choose a JPEG, PNG, WebP, or MP4 file.',
   media_too_large: 'This file is too large for the server upload limit.',
@@ -99,10 +100,21 @@ function buildDestinations(formData, accounts, { strict = true } = {}) {
   });
 }
 
+function values(formData, name) {
+  if (typeof formData?.getAll === 'function') return formData.getAll(name);
+  const value = formData?.get?.(name);
+  return value == null ? [] : [value];
+}
+
 function baseMedia(formData) {
-  const mediaUrl = String(formData.get('mediaUrl') ?? '').trim();
-  const mediaType = String(formData.get('mediaType') ?? 'image').trim().toLowerCase();
-  return mediaUrl ? [{ type: mediaType, url: mediaUrl }] : [];
+  const urls = values(formData, 'mediaUrl');
+  const types = values(formData, 'mediaType');
+  const media = urls.map((value, index) => ({
+    type: String(types[index] ?? 'image').trim().toLowerCase() || 'image',
+    url: String(value ?? '').trim()
+  })).filter((item) => item.url);
+  if (media.length > MAX_COMPOSER_MEDIA) throw new Error(`A post can contain at most ${MAX_COMPOSER_MEDIA} media items.`);
+  return media;
 }
 
 export function buildComposerPayload({ formData, accounts = [] }) {
@@ -110,7 +122,6 @@ export function buildComposerPayload({ formData, accounts = [] }) {
   const scheduledAtValue = String(formData.get('scheduledAt') ?? '');
   const localDate = new Date(scheduledAtValue);
   if (!Number.isFinite(localDate.getTime())) throw new Error('Select a valid publish time.');
-
   return {
     caption: String(formData.get('caption') ?? ''),
     destinations,
@@ -130,6 +141,110 @@ function buildPermissiveState(form, accounts) {
     scheduledAt: Number.isFinite(localDate.getTime()) ? localDate.toISOString() : null,
     platformOverrides: {}
   };
+}
+
+function readMediaRows(container) {
+  if (!container?.querySelectorAll) return [];
+  return [...container.querySelectorAll('[data-composer-media-row]')].map((row) => ({
+    type: String(row.querySelector('[name="mediaType"]')?.value ?? 'image').trim().toLowerCase() || 'image',
+    url: String(row.querySelector('[name="mediaUrl"]')?.value ?? '').trim()
+  })).filter((item) => item.url);
+}
+
+function createMediaRow(item = {}, onRemove) {
+  const row = document.createElement('div');
+  row.className = 'media-grid';
+  row.dataset.composerMediaRow = '';
+
+  const typeLabel = document.createElement('label');
+  typeLabel.className = 'field';
+  const typeText = document.createElement('span');
+  typeText.textContent = 'Media type';
+  const type = document.createElement('select');
+  type.name = 'mediaType';
+  for (const [value, label] of [['image', 'Image'], ['video', 'Video / Reel']]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    type.append(option);
+  }
+  type.value = String(item.type ?? 'image').toLowerCase() === 'video' ? 'video' : 'image';
+  typeLabel.append(typeText, type);
+
+  const urlLabel = document.createElement('label');
+  urlLabel.className = 'field';
+  const urlText = document.createElement('span');
+  urlText.textContent = 'Media URL';
+  const url = document.createElement('input');
+  url.name = 'mediaUrl';
+  url.type = 'url';
+  url.inputMode = 'url';
+  url.placeholder = 'https://cdn.example.com/post.jpg';
+  url.value = String(item.url ?? '');
+  urlLabel.append(urlText, url);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'button button--secondary';
+  remove.dataset.removeMedia = '';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', () => onRemove?.(row));
+  row.append(typeLabel, urlLabel, remove);
+  return row;
+}
+
+function syncMediaRows(container, countTarget, addButton) {
+  if (!container?.querySelectorAll) return;
+  const rows = [...container.querySelectorAll('[data-composer-media-row]')];
+  rows.forEach((row, index) => {
+    const type = row.querySelector('[name="mediaType"]');
+    const url = row.querySelector('[name="mediaUrl"]');
+    if (type) type.id = index === 0 ? 'media-type' : `media-type-${index + 1}`;
+    if (url) url.id = index === 0 ? 'media-url' : `media-url-${index + 1}`;
+    const remove = row.querySelector('[data-remove-media]');
+    if (remove) remove.disabled = rows.length === 1;
+  });
+  if (countTarget) countTarget.textContent = `${rows.length}/${MAX_COMPOSER_MEDIA} media items`;
+  if (addButton) addButton.disabled = rows.length >= MAX_COMPOSER_MEDIA;
+}
+
+function replaceMediaRows(container, media = [], countTarget, addButton) {
+  if (!container?.replaceChildren) return false;
+  const items = Array.isArray(media) && media.length ? media.slice(0, MAX_COMPOSER_MEDIA) : [{}];
+  const removeRow = (row) => {
+    if (container.querySelectorAll('[data-composer-media-row]').length <= 1) return;
+    row.remove();
+    syncMediaRows(container, countTarget, addButton);
+  };
+  container.replaceChildren(...items.map((item) => createMediaRow(item, removeRow)));
+  syncMediaRows(container, countTarget, addButton);
+  return true;
+}
+
+function appendMediaToRows(container, item, countTarget, addButton) {
+  if (!container?.querySelectorAll) return false;
+  const normalizedType = String(item?.type ?? '').trim().toLowerCase();
+  const normalizedUrl = String(item?.url ?? '').trim();
+  if (!['image', 'video'].includes(normalizedType) || !normalizedUrl) return false;
+  const rows = [...container.querySelectorAll('[data-composer-media-row]')];
+  const blank = rows.find((row) => !String(row.querySelector('[name="mediaUrl"]')?.value ?? '').trim());
+  if (blank) {
+    const type = blank.querySelector('[name="mediaType"]');
+    const url = blank.querySelector('[name="mediaUrl"]');
+    if (type) type.value = normalizedType;
+    if (url) url.value = normalizedUrl;
+    syncMediaRows(container, countTarget, addButton);
+    return true;
+  }
+  if (rows.length >= MAX_COMPOSER_MEDIA) return false;
+  const removeRow = (row) => {
+    if (container.querySelectorAll('[data-composer-media-row]').length <= 1) return;
+    row.remove();
+    syncMediaRows(container, countTarget, addButton);
+  };
+  container.append(createMediaRow({ type: normalizedType, url: normalizedUrl }, removeRow));
+  syncMediaRows(container, countTarget, addButton);
+  return true;
 }
 
 function setAccountOptions(select, accounts, platform) {
@@ -181,8 +296,8 @@ export async function initializeComposer({ onScheduled } = {}) {
   const fileInput = document.querySelector('#media-file');
   const uploadButton = document.querySelector('#upload-media');
   const uploadFeedback = document.querySelector('#media-upload-feedback');
-  const mediaUrl = document.querySelector('#media-url');
-  const mediaType = document.querySelector('#media-type');
+  const fallbackMediaUrl = document.querySelector('#media-url');
+  const fallbackMediaType = document.querySelector('#media-type');
   const submitButton = document.querySelector('#social-composer button[type="submit"]');
   const tiktokCheckbox = document.querySelector('input[name="platform"][value="tiktok"]');
   const tiktokAccount = document.querySelector('[name="account:tiktok"]');
@@ -197,18 +312,66 @@ export async function initializeComposer({ onScheduled } = {}) {
   let scheduling = false;
   let tiktokCapabilityRequest = 0;
 
+  let mediaContainer = document.querySelector('.media-grid');
+  let addMediaButton = null;
+  let mediaCount = null;
+  if (mediaContainer?.replaceChildren && typeof document.createElement === 'function') {
+    const initial = [{ type: fallbackMediaType?.value || 'image', url: fallbackMediaUrl?.value || '' }];
+    mediaContainer.id = 'composer-media-items';
+    mediaContainer.className = 'composer-media-items';
+    addMediaButton = document.createElement('button');
+    addMediaButton.id = 'add-media-item';
+    addMediaButton.type = 'button';
+    addMediaButton.className = 'button button--secondary';
+    addMediaButton.textContent = 'Add media';
+    mediaCount = document.createElement('small');
+    mediaCount.id = 'composer-media-count';
+    const actions = document.createElement('div');
+    actions.className = 'composer-resource-actions';
+    actions.append(addMediaButton, mediaCount);
+    mediaContainer.after(actions);
+    replaceMediaRows(mediaContainer, initial, mediaCount, addMediaButton);
+    addMediaButton.addEventListener('click', () => {
+      const rows = mediaContainer.querySelectorAll('[data-composer-media-row]');
+      if (rows.length >= MAX_COMPOSER_MEDIA) return;
+      const removeRow = (row) => {
+        if (mediaContainer.querySelectorAll('[data-composer-media-row]').length <= 1) return;
+        row.remove();
+        syncMediaRows(mediaContainer, mediaCount, addMediaButton);
+        notifyComposerInput(form);
+      };
+      mediaContainer.append(createMediaRow({}, removeRow));
+      syncMediaRows(mediaContainer, mediaCount, addMediaButton);
+      notifyComposerInput(form);
+    });
+  } else {
+    mediaContainer = null;
+  }
+
   function updateBusyControls() {
-    for (const control of [uploadButton, fileInput, mediaUrl, mediaType, submitButton]) {
-      if (control) control.disabled = uploading || scheduling;
-    }
+    const controls = [uploadButton, fileInput, fallbackMediaUrl, fallbackMediaType, submitButton, addMediaButton];
+    if (mediaContainer?.querySelectorAll) controls.push(...mediaContainer.querySelectorAll('input,select,button'));
+    for (const control of controls) if (control) control.disabled = uploading || scheduling;
+    if (!uploading && !scheduling && mediaContainer) syncMediaRows(mediaContainer, mediaCount, addMediaButton);
   }
 
   function useMedia({ type, url } = {}) {
     const normalizedType = String(type ?? '').trim().toLowerCase();
     const normalizedUrl = String(url ?? '').trim();
-    if (!mediaUrl || !mediaType || !['image', 'video'].includes(normalizedType) || !normalizedUrl) return false;
-    mediaUrl.value = normalizedUrl;
-    mediaType.value = normalizedType;
+    let used = false;
+    if (mediaContainer) used = appendMediaToRows(mediaContainer, { type: normalizedType, url: normalizedUrl }, mediaCount, addMediaButton);
+    else if (fallbackMediaUrl && fallbackMediaType && ['image', 'video'].includes(normalizedType) && normalizedUrl) {
+      fallbackMediaUrl.value = normalizedUrl;
+      fallbackMediaType.value = normalizedType;
+      used = true;
+    }
+    if (!used) {
+      if (uploadFeedback && normalizedUrl) {
+        uploadFeedback.dataset.state = 'error';
+        uploadFeedback.textContent = `A post can contain at most ${MAX_COMPOSER_MEDIA} media items.`;
+      }
+      return false;
+    }
     if (uploadFeedback) {
       uploadFeedback.dataset.state = normalizedUrl.startsWith('https://') ? 'success' : 'warning';
       uploadFeedback.textContent = normalizedUrl.startsWith('https://')
@@ -302,7 +465,7 @@ export async function initializeComposer({ onScheduled } = {}) {
   }
 
   uploadButton?.addEventListener('click', async () => {
-    if (uploading || scheduling || !uploadFeedback || !mediaUrl || !mediaType) return;
+    if (uploading || scheduling || !uploadFeedback) return;
     const file = fileInput?.files?.[0];
     if (!file) {
       uploadFeedback.dataset.state = 'error';
@@ -316,14 +479,14 @@ export async function initializeComposer({ onScheduled } = {}) {
     try {
       const result = await uploadMedia(file);
       const media = describeUploadedMedia(result?.upload);
-      mediaUrl.value = media.url;
-      mediaType.value = media.type;
+      if (!useMedia(media)) throw new Error('MEDIA_LIMIT');
       uploadFeedback.dataset.state = media.state;
       uploadFeedback.textContent = media.message;
-      notifyComposerInput(form);
     } catch (error) {
       uploadFeedback.dataset.state = 'error';
-      uploadFeedback.textContent = UPLOAD_ERRORS[error?.payload?.error] || 'Unable to upload this file. Please try again.';
+      uploadFeedback.textContent = error?.message === 'MEDIA_LIMIT'
+        ? `A post can contain at most ${MAX_COMPOSER_MEDIA} media items.`
+        : (UPLOAD_ERRORS[error?.payload?.error] || 'Unable to upload this file. Please try again.');
     } finally {
       uploading = false;
       updateBusyControls();
@@ -359,8 +522,11 @@ export async function initializeComposer({ onScheduled } = {}) {
   async function applyState(state = {}) {
     const captionInput = form.elements.namedItem('caption');
     if (captionInput) captionInput.value = String(state.caption ?? '');
-    if (mediaUrl) mediaUrl.value = String(state.media?.[0]?.url ?? '');
-    if (mediaType) mediaType.value = String(state.media?.[0]?.type ?? 'image') || 'image';
+    if (mediaContainer) replaceMediaRows(mediaContainer, state.media, mediaCount, addMediaButton);
+    else {
+      if (fallbackMediaUrl) fallbackMediaUrl.value = String(state.media?.[0]?.url ?? '');
+      if (fallbackMediaType) fallbackMediaType.value = String(state.media?.[0]?.type ?? 'image') || 'image';
+    }
     if (scheduleInput && state.scheduledAt) scheduleInput.value = localDateTimeValue(state.scheduledAt);
 
     for (const platform of SOCIAL_PLATFORMS) {
@@ -439,6 +605,7 @@ export async function initializeComposer({ onScheduled } = {}) {
       feedback.dataset.state = 'success';
       feedback.textContent = 'Post scheduled.';
       form.reset();
+      if (mediaContainer) replaceMediaRows(mediaContainer, [], mediaCount, addMediaButton);
       if (uploadFeedback) {
         uploadFeedback.dataset.state = '';
         uploadFeedback.textContent = '';
