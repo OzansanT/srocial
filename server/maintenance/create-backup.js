@@ -52,9 +52,9 @@ export async function createBackup({
 } = {}) {
   const output = String(outputDirectory ?? '').trim();
   if (!output) throw maintenanceError('BACKUP_OUTPUT_REQUIRED');
+  if (await exists(output)) throw maintenanceError('BACKUP_OUTPUT_EXISTS');
   if (!databaseStore || typeof databaseStore.exportSnapshot !== 'function') throw maintenanceError('BACKUP_DATABASE_STORE_REQUIRED');
   if (!mediaStore || typeof mediaStore.list !== 'function' || typeof mediaStore.open !== 'function') throw maintenanceError('BACKUP_MEDIA_STORE_REQUIRED');
-  if (await exists(output)) throw maintenanceError('BACKUP_OUTPUT_EXISTS');
 
   const parent = dirname(output);
   const temporary = join(parent, `.${basename(output)}.tmp-${randomUUID()}`);
