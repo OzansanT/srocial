@@ -3,6 +3,11 @@ import { buildOperationsSummary } from '../services/operations-service.js';
 
 const DATABASE_BACKENDS = new Set(['json', 'postgres']);
 const STORAGE_BACKENDS = new Set(['local', 's3']);
+let runtimeDependencies = Object.freeze({ mediaStore:null, schedulerLoop:null, environment:{} });
+
+export function configureOperationsRuntime({ mediaStore = null, schedulerLoop = null, environment = {} } = {}) {
+  runtimeDependencies = Object.freeze({ mediaStore, schedulerLoop, environment });
+}
 
 function unavailableDatabase() {
   return { ok:false, backend:'unavailable' };
@@ -79,11 +84,12 @@ function readSchedulerHealth(schedulerLoop) {
   }
 }
 
-export async function getOperationsPayload(repository, {
-  mediaStore = null,
-  schedulerLoop = null,
-  environment = {}
-} = {}) {
+export async function getOperationsPayload(repository, options = runtimeDependencies) {
+  const {
+    mediaStore = null,
+    schedulerLoop = null,
+    environment = {}
+  } = options ?? {};
   if (!repository) return { statusCode:503, payload:{ error:'repository_unavailable' } };
   try {
     const summary = await buildOperationsSummary(repository);
