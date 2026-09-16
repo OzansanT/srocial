@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const HOST = '127.0.0.1';
-const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const MIN_STARTUP_TIMEOUT_MS = 10_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 5_000;
 const CDP_REQUEST_TIMEOUT_MS = 5_000;

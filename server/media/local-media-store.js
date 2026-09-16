@@ -98,6 +98,64 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
     };
   }
 
+  async function writeValidatedExactKey(key, readable, { contentType } = {}) {
+    const value = String(key ?? '');
+    const metadata = mediaMetadataFromKey(value);
+    if (!metadata) throw notFound();
+
+    const { format, iterable } = createValidatedMediaIterable(readable, { contentType });
+    if (format.contentType !== metadata.contentType) throw new MediaStoreError('MEDIA_SIGNATURE_MISMATCH');
+
+    const startingUsage = (await storageUsage()).usedBytes;
+    const filePath = join(root, value);
+    let fileHandle = null;
+    let created = false;
+    let size = 0;
+    let completed = false;
+
+    try {
+      try {
+        fileHandle = await open(filePath, 'wx');
+        created = true;
+      } catch (error) {
+        if (error?.code === 'EEXIST') throw new MediaStoreError('MEDIA_ALREADY_EXISTS');
+        throw error;
+      }
+
+      for await (const bytes of iterable) {
+        size += bytes.length;
+        if (size > byteLimit) throw new MediaStoreError('MEDIA_TOO_LARGE');
+        if (startingUsage + size > totalByteLimit) throw new MediaStoreError('MEDIA_STORAGE_QUOTA_EXCEEDED');
+        let offset = 0;
+        while (offset < bytes.length) {
+          const { bytesWritten } = await fileHandle.write(bytes, offset, bytes.length - offset);
+          if (bytesWritten === 0) throw new MediaStoreError('MEDIA_STORAGE_ERROR');
+          offset += bytesWritten;
+        }
+      }
+      completed = true;
+    } catch (error) {
+      if (error instanceof MediaStoreError) throw error;
+      throw new MediaStoreError('MEDIA_STORAGE_ERROR');
+    } finally {
+      if (fileHandle) {
+        try { await fileHandle.close(); } catch { /* cleanup below */ }
+      }
+      if (created && !completed) {
+        try { await rm(filePath, { force: true }); } catch { /* do not leak storage paths */ }
+      }
+    }
+
+    return {
+      key: value,
+      type: metadata.type,
+      contentType: metadata.contentType,
+      size,
+      url: publicMediaUrl(baseUrl, value),
+      isHttps: baseUrl.protocol === 'https:'
+    };
+  }
+
   return {
     async initialize() {
       await mkdir(root, { recursive: true });
@@ -146,6 +204,10 @@ export function createLocalMediaStore({ rootDirectory, publicBaseUrl, maxBytes =
         url: publicMediaUrl(baseUrl, key),
         isHttps: baseUrl.protocol === 'https:'
       };
+    },
+
+    restore(key, readable, options = {}) {
+      return writeValidatedExactKey(key, readable, options);
     },
 
     list() {
