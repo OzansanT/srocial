@@ -22,6 +22,34 @@ function emptyState(message) {
   return text('p', message, 'operations-empty');
 }
 
+function diagnosticGroup(title, targetId) {
+  const section = document.createElement('section');
+  section.className = 'operations-group';
+  const heading = text('h3', title);
+  heading.id = `${targetId}-title`;
+  section.setAttribute('aria-labelledby', heading.id);
+  const target = document.createElement('div');
+  target.id = targetId;
+  target.className = 'operations-list';
+  target.setAttribute('aria-live', 'polite');
+  section.append(heading, target);
+  return section;
+}
+
+function ensureDiagnosticGroups() {
+  const operations = document.querySelector('#operations');
+  if (!operations || document.querySelector('#runtime-health-list')) return;
+  const grid = document.createElement('div');
+  grid.className = 'operations-grid operations-diagnostics-grid';
+  grid.append(
+    diagnosticGroup('Runtime health', 'runtime-health-list'),
+    diagnosticGroup('Environment diagnostics', 'environment-diagnostic-list')
+  );
+  const feedback = document.querySelector('#operations-feedback');
+  if (feedback) feedback.insertAdjacentElement('afterend', grid);
+  else operations.prepend(grid);
+}
+
 function renderProviders(items) {
   const target = document.querySelector('#provider-health-list');
   if (!target) return;
@@ -38,6 +66,61 @@ function renderProviders(items) {
     target.append(card);
   }
   if (!target.childElementCount) target.append(emptyState('No provider status is available yet.'));
+}
+
+function renderRuntime(runtime = {}) {
+  const target = document.querySelector('#runtime-health-list');
+  if (!target) return;
+  clear(target);
+
+  const database = runtime.database ?? {};
+  const databaseRow = document.createElement('article');
+  databaseRow.className = 'operations-row';
+  databaseRow.append(
+    text('strong', 'Database'),
+    text('span', `${database.ok ? 'Healthy' : 'Unavailable'} · ${database.backend ?? 'unavailable'}`)
+  );
+
+  const storage = runtime.storage ?? {};
+  const storageRow = document.createElement('article');
+  storageRow.className = 'operations-row';
+  const storageState = storage.ok && storage.writable ? 'Healthy' : 'Unavailable';
+  storageRow.append(
+    text('strong', 'Storage'),
+    text('span', `${storageState} · ${storage.backend ?? 'unavailable'}${storage.writable ? ' · writable' : ''}`),
+    text('small', storage.errorCode ? `Error: ${storage.errorCode}` : 'Writeability probe passed')
+  );
+
+  const scheduler = runtime.scheduler ?? {};
+  const schedulerRow = document.createElement('article');
+  schedulerRow.className = 'operations-row';
+  const schedulerMode = scheduler.configured ? (scheduler.running ? 'Running' : 'Stopped') : 'Disabled';
+  schedulerRow.append(
+    text('strong', 'Scheduler'),
+    text('span', `${schedulerMode} · ${scheduler.inFlight ? 'tick in flight' : 'stopped'}`),
+    text('small', scheduler.lastSuccessfulTickAt ? `Last success: ${formatTime(scheduler.lastSuccessfulTickAt)}` : (scheduler.lastErrorCode ? `Last error: ${scheduler.lastErrorCode}` : 'No completed tick recorded'))
+  );
+
+  target.append(databaseRow, storageRow, schedulerRow);
+}
+
+function renderEnvironment(environment = {}) {
+  const target = document.querySelector('#environment-diagnostic-list');
+  if (!target) return;
+  clear(target);
+  const issues = Array.isArray(environment.issues) ? environment.issues : [];
+  for (const issue of issues) {
+    const row = document.createElement('article');
+    row.className = 'operations-row operations-diagnostic';
+    row.dataset.severity = String(issue.severity ?? 'warning').toLowerCase();
+    row.append(
+      text('strong', issue.code ?? 'CONFIGURATION_ISSUE'),
+      text('span', issue.message ?? 'Configuration requires attention.'),
+      text('small', issue.setting ?? '')
+    );
+    target.append(row);
+  }
+  if (!target.childElementCount) target.append(emptyState('No configuration issues detected.'));
 }
 
 function renderFailedJobs(items) {
@@ -95,6 +178,7 @@ export async function initializeOperations() {
   const feedback = document.querySelector('#operations-feedback');
   const refresh = document.querySelector('#refresh-operations');
   if (!document.querySelector('#operations')) return { refresh: async () => null };
+  ensureDiagnosticGroups();
 
   async function load() {
     if (feedback) {
@@ -105,6 +189,8 @@ export async function initializeOperations() {
     try {
       const data = await getOperations();
       renderProviders(data.providers);
+      renderRuntime(data.runtime);
+      renderEnvironment(data.environment);
       renderFailedJobs(data.failedJobs);
       renderAttempts(data.attempts);
       renderWebhooks(data.webhooks);
