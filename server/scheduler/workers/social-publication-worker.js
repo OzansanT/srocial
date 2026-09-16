@@ -153,6 +153,7 @@ export async function executeSocialPublicationJob({
       state: status,
       externalId: result?.externalId ?? publication.externalId ?? null,
       externalUrl: result?.externalUrl ?? publication.externalUrl ?? null,
+      providerOptions: result?.providerOptions ?? publication.providerOptions ?? {},
       errorCode: null,
       updatedAt: now.toISOString()
     });

@@ -58,6 +58,14 @@ async function login() {
   await browser.waitFor(`document.querySelector('input[name="platform"][value="facebook"]')?.disabled === false`, { timeoutMs: 8_000 });
 }
 
+async function loadFreshComposer() {
+  await browser.navigate(`${server.baseUrl}/`);
+  await browser.waitFor(`document.querySelector('#logout-session')?.hidden === false`);
+  await browser.waitFor(`document.querySelector('input[name="platform"][value="facebook"]')?.disabled === false`, { timeoutMs: 8_000 });
+  await browser.waitFor(`document.querySelector('#draft-selector')?.value === ''`);
+  await browser.waitFor(`document.querySelectorAll('#composer-media-items [data-composer-media-row]').length === 1`);
+}
+
 async function chooseFacebook() {
   await browser.fill('[name="account:facebook"]', FACEBOOK.id);
   const checked = await browser.evaluate(`document.querySelector('input[name="platform"][value="facebook"]')?.checked === true`);
@@ -179,7 +187,7 @@ test('real browser persists, recovers and conflict-protects composer drafts and 
   await browser.waitFor(`document.querySelector('#draft-status')?.textContent.startsWith('Saved revision ')`, { timeoutMs: 8_000 });
 });
 
-test('real browser uploads, reuses and deletes local media through the Media Library', { timeout: 25_000 }, async () => {
+test('real browser uploads, appends, removes and deletes local media through the Media Library', { timeout: 25_000 }, async () => {
   await browser.setFileInputFiles('#media-file', [uploadPath]);
   await browser.click('#upload-media');
   await browser.waitFor(`document.querySelector('#media-upload-feedback')?.textContent === 'Media uploaded locally. Configure a public HTTPS PUBLIC_BASE_URL before scheduling provider publishing.'`, { timeoutMs: 8_000 });
@@ -192,9 +200,13 @@ test('real browser uploads, reuses and deletes local media through the Media Lib
   assert.equal(await browser.evaluate(`document.querySelector('#media-storage-summary')?.textContent.includes('1 file')`), true);
 
   await clickButtonWithin('.media-card', 'Use in composer');
-  await browser.waitFor(`document.querySelector('#media-url')?.value === ${js(uploadedUrl)}`);
+  await browser.waitFor(`document.querySelectorAll('#composer-media-items [data-composer-media-row]').length === 2`);
+  assert.equal(await browser.evaluate(`document.querySelector('#media-url')?.value`), uploadedUrl);
+  assert.equal(await browser.evaluate(`document.querySelector('#media-url-2')?.value`), uploadedUrl);
   assert.equal(await browser.evaluate(`location.hash`), '#create');
 
+  await browser.click('#composer-media-items [data-composer-media-row]:nth-child(2) [data-remove-media]');
+  await browser.waitFor(`document.querySelectorAll('#composer-media-items [data-composer-media-row]').length === 1`);
   await browser.fill('#media-url', '');
   await browser.evaluate(`window.confirm = () => true`);
   await browser.click('.media-card__delete');
@@ -203,6 +215,7 @@ test('real browser uploads, reuses and deletes local media through the Media Lib
 });
 
 test('real browser schedules text-only Facebook content and performs Queue/Calendar bulk lifecycle actions', { timeout: 30_000 }, async () => {
+  await loadFreshComposer();
   const scheduleValue = localDateTimeAfter(75);
   const rescheduleValue = localDateTimeAfter(150);
 

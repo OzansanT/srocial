@@ -62,6 +62,7 @@ export async function executeStatusCheckJob({
         state: PUBLICATION_STATES.PROCESSING,
         externalId: result?.externalId ?? publication.externalId ?? null,
         externalUrl: result?.externalUrl ?? publication.externalUrl ?? null,
+        providerOptions: result?.providerOptions ?? publication.providerOptions ?? {},
         errorCode: null,
         updatedAt: now.toISOString()
       });
@@ -83,6 +84,7 @@ export async function executeStatusCheckJob({
         state: PUBLICATION_STATES.PUBLISHED,
         externalId: result?.externalId ?? publication.externalId ?? null,
         externalUrl: result?.externalUrl ?? publication.externalUrl ?? null,
+        providerOptions: result?.providerOptions ?? publication.providerOptions ?? {},
         errorCode: null,
         updatedAt: now.toISOString()
       });

@@ -132,7 +132,6 @@ test('rejects media counts that implemented provider adapters cannot publish bef
   const tiktokOptions = { privacyLevel: 'SELF_ONLY', consent: true };
   const cases = [
     { account: instagram, platform: 'instagram', media: [] },
-    { account: instagram, platform: 'instagram', media: [image('one'), image('two')] },
     { account: facebook, platform: 'facebook', media: [image('one'), image('two')] },
     { account: threads, platform: 'threads', media: [image('one'), image('two')] },
     { account: tiktok, platform: 'tiktok', media: [] },
