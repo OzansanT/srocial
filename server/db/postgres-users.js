@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createPostgresRateLimits } from './postgres-rate-limits.js';
 
 const ADMIN_CONTINUITY_LOCK = 93217021;
 
@@ -58,7 +59,10 @@ function userUpdateStatement(id, patch = {}) {
 }
 
 export function createPostgresUsers(pool) {
+  const rateLimits = createPostgresRateLimits(pool);
   return {
+    ...rateLimits,
+
     async createUser(record) {
       const id = record.id ?? randomUUID();
       const result = await pool.query(
