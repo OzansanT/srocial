@@ -8,7 +8,6 @@ import { createRepositoryFromEnvironment } from './db/create-repository.js';
 import { createMediaStoreFromEnvironment } from './media/create-media-store.js';
 import { createWhatsAppAdapter } from './messaging/whatsapp/adapter.js';
 import { getWhatsAppConfig } from './messaging/whatsapp/config.js';
-import { configureOperationsRuntime } from './routes/operations.js';
 import { registerFacebookProvider } from './platforms/facebook/index.js';
 import { registerInstagramProvider } from './platforms/instagram/index.js';
 import { createPlatformRegistry } from './platforms/registry.js';
@@ -62,8 +61,6 @@ const schedulerLoop = startSchedulerLoop({
   tick: runSchedulerTick
 });
 
-configureOperationsRuntime({ mediaStore, schedulerLoop, environment:runtimeEnv });
-
 const mediaRetentionLoop = startMediaRetentionLoop({
   enabled: process.env.MEDIA_ORPHAN_CLEANUP_ENABLED,
   repository,
@@ -83,7 +80,8 @@ const server = createServer(createRequestHandler({
   mediaStore,
   appAuth,
   webhookConfig,
-  whatsappAdapter: messagingRegistry.get('whatsapp') ?? null
+  whatsappAdapter: messagingRegistry.get('whatsapp') ?? null,
+  operationsRuntime: { mediaStore, schedulerLoop, environment:runtimeEnv }
 }));
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 
