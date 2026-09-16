@@ -212,7 +212,7 @@ export function createRequestHandler({
         if (isApiRequest(url.pathname)) {
           const limit = await appAuth.consumeApi(request);
           if (!limit.allowed) {
-            return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(loginLimit.retryAfterSeconds) });
+            return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(limit.retryAfterSeconds) });
           }
         }
 
