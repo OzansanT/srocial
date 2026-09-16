@@ -179,7 +179,7 @@ test('real browser persists, recovers and conflict-protects composer drafts and 
   await browser.waitFor(`document.querySelector('#draft-status')?.textContent.startsWith('Saved revision ')`, { timeoutMs: 8_000 });
 });
 
-test('real browser uploads, reuses and deletes local media through the Media Library', { timeout: 25_000 }, async () => {
+test('real browser uploads, appends, removes and deletes local media through the Media Library', { timeout: 25_000 }, async () => {
   await browser.setFileInputFiles('#media-file', [uploadPath]);
   await browser.click('#upload-media');
   await browser.waitFor(`document.querySelector('#media-upload-feedback')?.textContent === 'Media uploaded locally. Configure a public HTTPS PUBLIC_BASE_URL before scheduling provider publishing.'`, { timeoutMs: 8_000 });
@@ -192,9 +192,13 @@ test('real browser uploads, reuses and deletes local media through the Media Lib
   assert.equal(await browser.evaluate(`document.querySelector('#media-storage-summary')?.textContent.includes('1 file')`), true);
 
   await clickButtonWithin('.media-card', 'Use in composer');
-  await browser.waitFor(`document.querySelector('#media-url')?.value === ${js(uploadedUrl)}`);
+  await browser.waitFor(`document.querySelectorAll('#composer-media-items [data-composer-media-row]').length === 2`);
+  assert.equal(await browser.evaluate(`document.querySelector('#media-url')?.value`), uploadedUrl);
+  assert.equal(await browser.evaluate(`document.querySelector('#media-url-2')?.value`), uploadedUrl);
   assert.equal(await browser.evaluate(`location.hash`), '#create');
 
+  await browser.click('#composer-media-items [data-composer-media-row]:nth-child(2) [data-remove-media]');
+  await browser.waitFor(`document.querySelectorAll('#composer-media-items [data-composer-media-row]').length === 1`);
   await browser.fill('#media-url', '');
   await browser.evaluate(`window.confirm = () => true`);
   await browser.click('.media-card__delete');
@@ -237,4 +241,15 @@ test('real browser schedules text-only Facebook content and performs Queue/Calen
   await browser.waitFor(`document.querySelector('#queue-feedback')?.textContent === '1 selected post cancelled.'`, { timeoutMs: 8_000 });
   await browser.waitFor(`document.querySelector('.queue-row__badges')?.textContent.includes('cancelled')`, { timeoutMs: 8_000 });
   assert.equal(await browser.evaluate(`document.querySelector('.calendar-post__state')?.textContent`), 'cancelled');
+});
+
+test('real browser rejects invalid bulk reschedule input before any request changes state', { timeout: 15_000 }, async () => {
+  await browser.click('.queue-row__selection input');
+  await browser.fill('#queue-bulk-time', '');
+  await browser.click('#queue-bulk-reschedule');
+  await browser.waitFor(`document.querySelector('#queue-feedback')?.textContent === 'Choose a valid new publish time.'`);
+
+  const postList = await browserFetch('/api/posts');
+  const scheduledPost = postList.payload?.posts?.find((post) => post.caption === 'V23 scheduled browser post');
+  assert.equal(scheduledPost?.state, 'CANCELLED');
 });
