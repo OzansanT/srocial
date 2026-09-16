@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('dashboard exposes Operations navigation, panel targets, stylesheet, and module bootstrap', async () => {
+test('dashboard exposes Operations navigation, runtime diagnostics targets, stylesheet, and module bootstrap', async () => {
   const [html, app, api, page, css] = await Promise.all([
     source('client/index.html'),
     source('client/js/app.js'),
@@ -23,6 +23,9 @@ test('dashboard exposes Operations navigation, panel targets, stylesheet, and mo
   assert.match(html, /\/css\/pages\/operations\.css/);
   assert.match(api, /\/api\/operations/);
   assert.match(page, /export async function initializeOperations/);
+  assert.match(page, /runtime-health-list/);
+  assert.match(page, /environment-diagnostic-list/);
+  assert.doesNotMatch(page, /\.innerHTML\s*=/);
   assert.match(app, /initializeOperations/);
   assert.ok(css.trim().length > 0);
 });

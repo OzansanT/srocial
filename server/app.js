@@ -181,7 +181,8 @@ export function createRequestHandler({
   mediaStore = null,
   appAuth = null,
   webhookConfig = {},
-  whatsappAdapter = null
+  whatsappAdapter = null,
+  operationsRuntime = {}
 } = {}) {
   const analyticsService = repository ? createAnalyticsService({ repository, analyticsRegistry }) : null;
   return async function requestHandler(request, response) {
@@ -288,7 +289,7 @@ export function createRequestHandler({
       }
       if (request.method === 'GET' && url.pathname === '/api/dashboard') return sendJson(response, 200, await getDashboardPayload(repository));
       if (request.method === 'GET' && url.pathname === '/api/operations') {
-        const result = await getOperationsPayload(repository);
+        const result = await getOperationsPayload(repository, operationsRuntime);
         return sendJson(response, result.statusCode, result.payload);
       }
 

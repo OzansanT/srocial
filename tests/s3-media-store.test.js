@@ -159,3 +159,30 @@ test('enforces per-file and aggregate quota before issuing PUT', async () => {
   await assert.rejects(() => quota.save(Readable.from([JPEG]), { contentType: 'image/jpeg' }), (error) => error?.code === 'MEDIA_STORAGE_QUOTA_EXCEEDED');
   assert.equal(fakeQuota.calls.some((call) => call.method === 'PUT'), false);
 });
+
+test('S3 media health proves writeability with a reserved probe key and cleans it up', async () => {
+  const objects = new Map();
+  const fake = createFakeRequestClient({ objects });
+  const store = createStore(fake.client);
+  const health = await store.healthCheck();
+
+  assert.deepEqual(health, { ok: true, backend: 's3', writable: true, errorCode: null });
+  const probePut = fake.calls.find((call) => call.method === 'PUT' && new URL(call.url).pathname.includes('__srocial-health__'));
+  const probeDelete = fake.calls.find((call) => call.method === 'DELETE' && new URL(call.url).pathname.includes('__srocial-health__'));
+  assert.ok(probePut);
+  assert.ok(probeDelete);
+  assert.equal(objects.size, 0);
+});
+
+test('S3 media health sanitizes object-store failures', async () => {
+  const rawSecret = 'secret-access-key-must-not-leak';
+  const store = createStore({
+    async request() {
+      throw new Error(rawSecret);
+    }
+  });
+
+  const health = await store.healthCheck();
+  assert.deepEqual(health, { ok: false, backend: 's3', writable: false, errorCode: 'MEDIA_STORAGE_UNAVAILABLE' });
+  assert.equal(JSON.stringify(health).includes(rawSecret), false);
+});

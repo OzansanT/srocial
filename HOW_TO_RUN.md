@@ -1,10 +1,10 @@
 # How to Run Srocial — Beginner Guide
 
-This guide explains how to install and run Srocial, use the default JSON repository, enable V11 administrator authentication, optionally configure PostgreSQL, connect Instagram, schedule posts, manage uploaded media, and keep real publishing disabled until you intentionally enable it.
+This guide explains how to install Srocial, start safely with JSON/local media, enable authentication, move to PostgreSQL/S3 when required, use Operations diagnostics, create backups, and restore a deployment.
 
-## 1. Install Node.js
+## 1. Requirements
 
-Srocial requires Node.js 20 or newer. Check your installation:
+Srocial requires Node.js 20 or newer.
 
 ```text
 node -v
@@ -13,47 +13,38 @@ npm -v
 
 Node 20, 22, or newer is suitable.
 
-## 2. Get Srocial
+## 2. Get the repository
 
-### Download ZIP
-
-1. Open the `OzansanT/srocial` repository on GitHub.
-2. Click **Code** > **Download ZIP**.
-3. Extract the ZIP.
-4. Open the extracted `srocial` folder in a terminal.
-
-### Git clone
+Download the repository ZIP from GitHub, or clone it:
 
 ```bash
 git clone https://github.com/OzansanT/srocial.git
 cd srocial
 ```
 
-## 3. Install dependencies
-
-Run:
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-The PostgreSQL `pg` client is a runtime dependency even when you use the default JSON repository.
+## 3. Start in safe local mode
 
-## 4. Start in safe local JSON mode
-
-Defaults:
+The default development shape is intentionally non-publishing:
 
 ```text
 DATABASE_DRIVER=json
 DATA_FILE=./data/srocial.json
+MEDIA_STORAGE_DRIVER=local
+MEDIA_UPLOAD_DIR=./data/uploads
 APP_AUTH_ENABLED=false
-ALLOW_REAL_PUBLISH=false
 SCHEDULER_ENABLED=false
+ALLOW_REAL_PUBLISH=false
+ALLOW_REAL_WHATSAPP=false
+ALLOW_LEGACY_PLATFORM_SCHEDULING=false
 ```
 
-You do not need PostgreSQL or a login for ordinary loopback-only local development.
-
-Start Srocial:
+Start the application:
 
 ```bash
 npm start
@@ -65,43 +56,39 @@ Open:
 http://127.0.0.1:3000
 ```
 
-Keep both publishing flags false while learning or testing.
+Keep the scheduler and both real-execution flags disabled while learning, developing, or running deterministic tests.
 
-## 5. What V11 adds
+## 4. Environment variables
 
-V11 closes the main application-exposure gap that remained after the PostgreSQL V10 work.
+Srocial does **not** automatically load a `.env` file. Set values through your shell, process manager, container platform, or deployment service. `.env.example` is the reference list.
 
-It adds:
+Server-only values include:
 
-- opt-in single-administrator sign-in;
-- signed, expiring HttpOnly application-session cookies;
-- default-deny protection for the dashboard/static app and management APIs when auth is enabled;
-- same-origin checks for authenticated POST/PUT/PATCH/DELETE requests;
-- a login-attempt limiter;
-- a protected-API request limiter;
-- a dedicated login page and dashboard Sign out control;
-- public exceptions for health checks, provider OAuth callbacks, and provider-readable media;
-- regression coverage preserving V10 behavior when auth is disabled.
+- database credentials;
+- object-storage credentials;
+- provider app secrets/tokens;
+- WhatsApp access tokens;
+- `TOKEN_ENCRYPTION_KEY`;
+- administrator bootstrap password;
+- `SESSION_SECRET`.
 
-V11 intentionally does not add database users, multiple roles, invitations, password-reset email, or third-party identity providers.
+Never put these values in browser JavaScript, committed files, screenshots, or support messages.
 
-## 6. Enable administrator authentication
+## 5. Enable application authentication
 
-For any network/public deployment, enable application authentication.
+For any non-loopback/network/public deployment, enable authentication and HTTPS.
 
-Required values:
+Minimum bootstrap settings:
 
 ```text
 APP_AUTH_ENABLED=true
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<at-least-12-characters>
 SESSION_SECRET=<at-least-32-random-characters>
-PUBLIC_BASE_URL=https://your-real-srocial-origin.example
+PUBLIC_BASE_URL=https://your-srocial-host.example
 ```
 
-Do **not** copy the example secret strings into production. Generate your own private values and never commit them.
-
-### PowerShell example
+### PowerShell
 
 ```powershell
 $env:APP_AUTH_ENABLED="true"
@@ -112,7 +99,7 @@ $env:PUBLIC_BASE_URL="https://srocial.example.com"
 npm start
 ```
 
-### Command Prompt example
+### Command Prompt
 
 ```bat
 set APP_AUTH_ENABLED=true
@@ -123,7 +110,7 @@ set PUBLIC_BASE_URL=https://srocial.example.com
 npm start
 ```
 
-### macOS/Linux example
+### macOS/Linux
 
 ```bash
 export APP_AUTH_ENABLED="true"
@@ -134,492 +121,269 @@ export PUBLIC_BASE_URL="https://srocial.example.com"
 npm start
 ```
 
-When auth is enabled, Srocial fails startup instead of silently exposing the dashboard if:
+When the persistent user store is empty, these credentials bootstrap the first Admin. After persistent users exist, repository-backed login is authoritative.
 
-- `ADMIN_PASSWORD` is shorter than 12 characters;
-- `SESSION_SECRET` is shorter than 32 characters;
-- `PUBLIC_BASE_URL` is not a valid HTTP/HTTPS URL;
-- auth/rate-limit numeric settings are invalid.
+The browser receives an opaque HttpOnly session token; persistence stores only a derived token hash. Disabling a user, changing a password, or revoking sessions invalidates affected access.
 
-## 7. Sign in and sign out
+## 6. Public and protected routes
 
-With V11 auth enabled:
-
-1. Open the configured Srocial URL.
-2. Protected dashboard navigation redirects to `/login.html`.
-3. Enter `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
-4. Srocial sets a signed HttpOnly session cookie.
-5. The browser returns to the dashboard.
-6. Use **Sign out** in the dashboard header to expire the cookie.
-
-The password and `SESSION_SECRET` are not stored in localStorage or sessionStorage.
-
-The session defaults to 8 hours:
-
-```text
-SESSION_TTL_SECONDS=28800
-```
-
-For an HTTPS `PUBLIC_BASE_URL`, the session cookie includes `Secure`. Use HTTPS for any non-loopback deployment so credentials and cookies are protected in transit.
-
-## 8. Understand public and protected routes
-
-When auth is enabled, only these route groups remain public:
+When authentication is enabled, management surfaces are protected. Important public exceptions are limited to infrastructure/provider needs:
 
 ```text
 GET       /api/health
 POST      /api/auth/login
-GET/HEAD  /login.html and its dedicated assets
 GET       /api/oauth/:provider/callback
 GET/HEAD  /media/:key
+GET       /api/webhooks/meta
+POST      /api/webhooks/meta
+POST      /api/webhooks/tiktok
+GET       /api/webhooks/whatsapp
+POST      /api/webhooks/whatsapp
+GET/HEAD  login document/assets
 ```
 
-The OAuth callback remains public because providers must redirect to it. Uploaded media retrieval remains public because Instagram and other providers need to fetch media from the scheduled URL.
+Webhook POST routes remain public at the session layer because providers must reach them, but state-changing provider payloads are accepted only after signature verification.
 
-Everything else in the dashboard/static app and management API is protected by default.
+`/api/operations`, Analytics, Accounts, Queue/Calendar lifecycle operations, WhatsApp management, Composer resources, and user administration remain protected.
 
-Unauthenticated protected APIs return:
+## 7. PostgreSQL production backend
+
+Set:
 
 ```text
-HTTP 401
-{ "error": "unauthorized" }
+DATABASE_DRIVER=postgres
+DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DATABASE
 ```
 
-Explicit cross-site authenticated mutations return:
-
-```text
-HTTP 403
-{ "error": "cross_site_request" }
-```
-
-## 9. Request-limit defaults
-
-Defaults:
-
-```text
-API_RATE_LIMIT_WINDOW_MS=60000
-API_RATE_LIMIT_MAX=120
-LOGIN_RATE_LIMIT_WINDOW_MS=900000
-LOGIN_RATE_LIMIT_MAX=10
-```
-
-That means:
-
-- protected API: 120 requests per 60 seconds per remote address;
-- login: 10 attempts per 15 minutes per remote address.
-
-Exceeded limits return HTTP 429 with `Retry-After`.
-
-V11 uses `request.socket.remoteAddress` and deliberately ignores `X-Forwarded-For`. If you later need multiple app instances or proxy-aware client identity, design that as a separate deployment/security change rather than trusting forwarded headers automatically.
-
-## 10. Use PostgreSQL instead of JSON
-
-You need an accessible PostgreSQL database and a connection string such as:
-
-```text
-postgres://USER:PASSWORD@HOST:5432/DATABASE
-```
-
-Never commit the real connection string to GitHub.
-
-### PowerShell
-
-```powershell
-$env:DATABASE_DRIVER="postgres"
-$env:DATABASE_URL="postgres://USER:PASSWORD@HOST:5432/DATABASE"
-```
-
-### Command Prompt
-
-```bat
-set DATABASE_DRIVER=postgres
-set DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DATABASE
-```
-
-### macOS/Linux
-
-```bash
-export DATABASE_DRIVER=postgres
-export DATABASE_URL="postgres://USER:PASSWORD@HOST:5432/DATABASE"
-```
-
-`DATABASE_URL` does not switch Srocial to PostgreSQL by itself. `DATABASE_DRIVER=postgres` must also be set.
-
-## 11. Run PostgreSQL migrations
-
-Before the first PostgreSQL startup, run:
+Apply migrations **before** normal startup:
 
 ```bash
 npm run db:migrate
-```
-
-A successful run prints migration names and whether each migration was applied or skipped.
-
-`npm start` does **not** apply migrations automatically. If required tables are missing, startup fails with:
-
-```text
-DATABASE_MIGRATIONS_REQUIRED
-```
-
-Applied migrations are recorded in `srocial_migrations` with SHA-256 checksums. Do not edit already-applied historical migration files; add a new migration instead.
-
-## 12. Start with PostgreSQL
-
-After migrations:
-
-```bash
 npm start
 ```
 
-The same dashboard is available at the configured `HOST` and `PORT`. Authentication configuration is independent of database selection, so you can use V11 auth with either JSON or PostgreSQL.
+`npm start` does not run migrations automatically.
 
-When the process stops, Srocial closes the PostgreSQL pool after stopping the scheduler and HTTP server.
+Migrations are ordered, checksum-recorded, transaction-protected, and advisory-lock guarded. Do not edit a historical migration after it has been applied. Current migrations run through `010_rate_limit_buckets.sql`.
 
-## 13. Check health
+## 8. Trusted reverse proxies and rate limits
 
-Request:
+Default request-limit settings are documented in `.env.example`.
 
-```text
-GET /api/health
-```
+`TRUSTED_PROXY_IPS` is an exact comma-separated IPv4/IPv6 allowlist. Leave it empty unless Srocial is directly connected to a reverse proxy you control.
 
-Health remains public for infrastructure monitoring.
+With the setting empty, Srocial ignores `X-Forwarded-For` and uses the direct socket peer. When the direct peer is explicitly trusted, Srocial walks the forwarding chain right-to-left and chooses the nearest untrusted address. Malformed forwarding data falls back to the direct peer.
 
-A healthy JSON installation includes:
+PostgreSQL deployments share login/API fixed-window buckets between application instances.
 
-```json
-{
-  "ok": true,
-  "service": "srocial",
-  "version": "0.1.0",
-  "database": {
-    "ok": true,
-    "backend": "json"
-  }
-}
-```
+See `docs/V26_DISTRIBUTED_RATE_LIMITING.md`.
 
-With PostgreSQL selected, `backend` is `postgres` and the health check performs a live query.
+## 9. Local media storage
 
-Repository health failures return HTTP 503 with sanitized information. Database passwords, hosts, usernames, connection strings, and raw driver errors are not returned.
-
-## 14. Configure Instagram
-
-Before **Connect Instagram** can work, the running process needs:
+Default:
 
 ```text
-INSTAGRAM_APP_ID
-INSTAGRAM_APP_SECRET
-TOKEN_ENCRYPTION_KEY
-PUBLIC_BASE_URL
-```
-
-Optional:
-
-```text
-INSTAGRAM_API_VERSION=v26.0
-```
-
-### PowerShell example
-
-```powershell
-$env:INSTAGRAM_APP_ID="YOUR_APP_ID"
-$env:INSTAGRAM_APP_SECRET="YOUR_APP_SECRET"
-$env:TOKEN_ENCRYPTION_KEY="YOUR_LONG_PRIVATE_ENCRYPTION_SECRET"
-$env:PUBLIC_BASE_URL="https://srocial.example.com"
-npm start
-```
-
-Srocial does not automatically load `.env` files through `dotenv`. Supply settings through your shell, process manager, container, or deployment environment.
-
-## 15. Configure the Instagram callback
-
-With the default local address, the callback is:
-
-```text
-http://127.0.0.1:3000/api/oauth/instagram/callback
-```
-
-For deployment, use the actual externally reachable HTTPS origin:
-
-```text
-https://srocial.example.com/api/oauth/instagram/callback
-```
-
-Your Instagram/Meta application must allow the exact callback URI used by Srocial.
-
-The callback remains public even when V11 auth is enabled because Meta must reach it. OAuth **start** remains protected, so a visitor without a Srocial session cannot initiate account management through the dashboard API.
-
-## 16. Connect Instagram
-
-1. Start Srocial with Instagram configuration and, for deployment, V11 auth enabled.
-2. Sign in to Srocial.
-3. Go to **Accounts**.
-4. Click **Connect Instagram**.
-5. Complete provider authorization.
-6. Instagram redirects to Srocial.
-7. Srocial exchanges the result server-side, encrypts the credential, and redirects toward **Accounts**.
-
-Browser URLs receive only safe status/result values. Provider access tokens, authorization codes, OAuth state values, and raw provider errors are not copied into dashboard URLs.
-
-If your Srocial session expires during OAuth, the callback still completes its own state validation, but the subsequent dashboard request redirects to the Srocial login page.
-
-## 17. Reconnect or disconnect Instagram
-
-For an existing account:
-
-- **Reconnect** starts OAuth again.
-- **Disconnect** clears stored credential material and marks the account `DISCONNECTED`.
-
-Both management actions require the V11 application session when auth is enabled.
-
-## 18. Schedule an Instagram post
-
-1. Open **Create social post**.
-2. Enter a caption.
-3. Check **Instagram**.
-4. Choose the connected account.
-5. Upload a JPEG, PNG, WebP, or MP4, select an existing asset from **Media**, or enter an HTTPS media URL.
-6. Choose a future publish time.
-7. Click **Schedule**.
-
-Srocial creates:
-
-```text
-Post
-  -> Media
-  -> Instagram Publication(accountId)
-  -> SOCIAL_PUBLICATION scheduler job
-```
-
-Instagram must be able to retrieve the media from an externally reachable HTTPS URL.
-
-## 19. Manage the Media Library
-
-Open **Media** in the sidebar.
-
-Available actions:
-
-- **Use in composer**
-- **Copy URL**
-- **Delete** unused media
-- **Refresh**
-
-A persisted post reference marks the asset **In use**. The server refuses deletion even if the UI is bypassed.
-
-Defaults:
-
-```text
+MEDIA_STORAGE_DRIVER=local
 MEDIA_UPLOAD_DIR=./data/uploads
 MEDIA_UPLOAD_MAX_BYTES=52428800
 MEDIA_UPLOAD_TOTAL_MAX_BYTES=5368709120
 ```
 
-Upload/list/delete management APIs require the V11 session when auth is enabled. The resulting `/media/:key` URL itself stays publicly readable for provider delivery.
+Make sure the application process can create, read, and delete files in the upload directory.
 
-The current upload validation checks the declared MIME allowlist; it does not yet inspect file signatures or scan content. That remains a future hardening task.
+Uploaded media used for provider publishing must be reachable by the provider through the configured public deployment URL.
 
-## 20. Enable real scheduled publishing
+## 10. S3-compatible media storage
 
-Real recurring execution starts only when both values are true:
+Select S3-compatible storage with:
 
 ```text
-ALLOW_REAL_PUBLISH=true
+MEDIA_STORAGE_DRIVER=s3
+MEDIA_S3_ENDPOINT=https://your-object-storage.example
+MEDIA_S3_REGION=auto
+MEDIA_S3_BUCKET=your-bucket
+MEDIA_S3_ACCESS_KEY_ID=<private-access-key>
+MEDIA_S3_SECRET_ACCESS_KEY=<private-secret-key>
+MEDIA_S3_PREFIX=media/
+MEDIA_PUBLIC_BASE_URL=https://your-public-media-host.example
+```
+
+Do not expose object-storage credentials to the browser.
+
+Srocial's V29 storage health probe validates writeability using a reserved tiny probe object followed by deletion. The protected Operations page reports only normalized health/error codes, not endpoint/bucket/credential values or raw storage errors.
+
+## 11. Connect social providers
+
+Configure the relevant provider app credentials from `.env.example`, start Srocial, then use **Accounts** to connect Instagram, Facebook Pages, Threads, or TikTok.
+
+Use a real HTTPS `PUBLIC_BASE_URL` for provider callback flows. Provider-specific app review, scopes, redirect URLs, verified domains, and publishing eligibility are controlled by the provider and cannot be created by Srocial itself.
+
+Instagram, Threads, and TikTok support account-bound refresh jobs. TikTok refresh tokens may rotate.
+
+Do not enable real publishing until OAuth/account state and provider prerequisites are correct.
+
+## 12. Schedule social content
+
+Normal scheduling uses explicit account-bound destinations. Each selected account must exist, be `CONNECTED`, and match its platform.
+
+The default-off compatibility setting:
+
+```text
+ALLOW_LEGACY_PLATFORM_SCHEDULING=false
+```
+
+prevents new platform-only jobs from being created without an account binding.
+
+The Composer supports drafts, autosave, reusable caption/hashtag/destination resources, per-platform overrides, compatibility checks, and previews. Queue/Calendar provide lifecycle controls after scheduling.
+
+## 13. Enable the scheduler deliberately
+
+The scheduler starts only when both conditions are satisfied:
+
+1. `SCHEDULER_ENABLED=true`; and
+2. at least one real-execution gate is enabled.
+
+Social publishing:
+
+```text
 SCHEDULER_ENABLED=true
+ALLOW_REAL_PUBLISH=true
+ALLOW_REAL_WHATSAPP=false
 ```
 
-PowerShell example:
-
-```powershell
-$env:ALLOW_REAL_PUBLISH="true"
-$env:SCHEDULER_ENABLED="true"
-$env:SCHEDULER_INTERVAL_MS="30000"
-npm start
-```
-
-Enable this only when the intended account, media, caption, and schedule are correct.
-
-## 21. Scheduler behavior
-
-The scheduler performs:
+WhatsApp execution only:
 
 ```text
-find due jobs
- -> atomically claim
- -> lock to one worker
- -> dispatch to provider adapter
- -> store provider result
- -> complete / retry / status-check
+SCHEDULER_ENABLED=true
+ALLOW_REAL_PUBLISH=false
+ALLOW_REAL_WHATSAPP=true
 ```
 
-With PostgreSQL, claiming uses `FOR UPDATE SKIP LOCKED` so concurrent workers do not claim the same due row. Stale running locks can still be recovered after the configured timeout.
+Enabling WhatsApp does not authorize social publishing, and enabling social publishing does not authorize WhatsApp sends.
 
-## 22. Local data and backups
+## 14. Use Operations health and diagnostics
 
-With JSON mode, runtime records are stored in:
+Open **Operations** while authenticated.
 
-```text
-data/srocial.json
+V29 shows:
+
+- **Database** — normalized repository connectivity/backend health;
+- **Storage** — local/S3 accessibility and writeability;
+- **Scheduler** — configured/running/stopped/in-flight state plus last tick success/failure telemetry;
+- **Provider Health** — existing provider health/rate-limit state;
+- **Environment Diagnostics** — configuration errors/warnings using setting names only;
+- existing failed/retrying jobs, publication attempts, and verified webhook activity.
+
+A failed storage/database/scheduler probe should degrade only that card; it should not make the full Operations response disappear.
+
+Environment diagnostics never return environment values or secrets. They can identify, for example, a missing `DATABASE_URL`, incomplete S3/provider/WhatsApp configuration, scheduler/execution-gate mismatch, or unsafe public HTTP/auth combinations.
+
+The public `/api/health` endpoint remains intentionally minimal; use protected Operations for detailed diagnostics.
+
+See `docs/V29_OPERATIONAL_HEALTH.md`.
+
+## 15. Create a backup
+
+V28 provides a maintenance-only backup command:
+
+```bash
+npm run backup -- --output ./backups/srocial-2026-09-16
 ```
 
-Uploaded files are stored separately in:
+The command uses the currently configured database and media drivers. It supports:
 
-```text
-data/uploads/
+- JSON + local media;
+- JSON + S3 media;
+- PostgreSQL + local media;
+- PostgreSQL + S3 media.
+
+The backup directory contains a versioned secret-free manifest, a logical database snapshot, media files, and SHA-256 integrity metadata. Environment secrets are not copied into the manifest.
+
+Backups themselves still contain application data and media. Protect the backup directory with appropriate filesystem/object-storage permissions and encryption at rest where required.
+
+## 16. Restore a backup
+
+For disaster recovery or deliberate environment replacement:
+
+1. stop every Srocial application instance using the target database/media store;
+2. configure the target environment;
+3. for a new PostgreSQL target, run migrations first;
+4. restore;
+5. start Srocial;
+6. verify health/auth/media/Queue/Calendar/account state;
+7. only then re-enable real execution gates.
+
+Empty target:
+
+```bash
+npm run restore -- --input ./backups/srocial-2026-09-16
 ```
 
-Back up both when using local JSON/media storage.
+Intentional destructive replacement:
 
-With PostgreSQL mode, back up the database using normal database backup tools **and** back up `MEDIA_UPLOAD_DIR`. PostgreSQL persistence does not move uploaded bytes into the database.
+```bash
+npm run restore -- --input ./backups/srocial-2026-09-16 --force
+```
 
-V11 application sessions are stateless signed cookies, so there is no V11 session table to back up.
+`--force` replaces existing application state. It does **not** merge two independent Srocial installations.
 
-## 23. Run tests
+Restore validates format/version, database checksum, media file set/sizes/checksums, backend compatibility, and PostgreSQL migration compatibility before mutation.
 
-Install dependencies first, then run:
+See `docs/V28_BACKUP_RESTORE.md`.
+
+## 17. Run automated verification
+
+Node tests:
 
 ```bash
 npm test
 ```
 
-The normal local suite may skip PostgreSQL integration tests unless `TEST_POSTGRES_URL` is configured.
-
-GitHub Actions starts PostgreSQL 17, runs the real migration command, runs all tests including V11 authorization/security tests, and performs JavaScript syntax checks.
-
-## 24. Stop Srocial
-
-Press:
-
-```text
-Ctrl + C
-```
-
-Srocial stops the scheduler, closes the HTTP server, then closes the selected repository.
-
-## 25. Common problems
-
-### `APP_AUTH_PASSWORD_WEAK`
-
-`APP_AUTH_ENABLED=true`, but `ADMIN_PASSWORD` is shorter than 12 characters. Set a longer private password.
-
-### `APP_AUTH_SESSION_SECRET_WEAK`
-
-`APP_AUTH_ENABLED=true`, but `SESSION_SECRET` is shorter than 32 characters. Generate a longer random secret.
-
-### `APP_AUTH_PUBLIC_BASE_URL_INVALID`
-
-`PUBLIC_BASE_URL` is not a valid HTTP/HTTPS URL. Set the exact Srocial origin, for example:
-
-```text
-https://srocial.example.com
-```
-
-### Login returns 429
-
-Too many sign-in attempts were made from the same remote address inside the configured window. Wait for the `Retry-After` duration or adjust the login limits intentionally.
-
-### Protected API returns 401
-
-The application session is missing, invalid, tampered, or expired. Sign in again.
-
-### Protected mutation returns 403 `cross_site_request`
-
-The browser sent an explicit cross-site origin/fetch context. Use the Srocial dashboard from the configured `PUBLIC_BASE_URL` origin.
-
-### `Cannot find package 'pg'`
-
-Run:
+Real-browser tests require Chrome/Chromium:
 
 ```bash
-npm install
+npm run test:e2e
 ```
 
-### `DATABASE_URL_REQUIRED`
+The GitHub Actions pipeline also checks PostgreSQL migrations and JavaScript syntax. The Chrome/CDP startup guard currently uses a 30-second default budget with a validated override for unusually slow runners.
 
-You selected `DATABASE_DRIVER=postgres` without a nonempty `DATABASE_URL`.
+Automated tests do not replace real provider verification. TikTok publishing, live webhook delivery, WhatsApp Cloud API sending, and provider analytics permissions/metric behavior remain tracked in `PROBLEMS.md` until real credentials/prerequisites are available.
 
-### `DATABASE_DRIVER_UNSUPPORTED`
+## 18. Troubleshooting order
 
-Use only `json` or `postgres`.
+When Srocial does not behave as expected:
 
-### `DATABASE_MIGRATIONS_REQUIRED`
+1. keep real execution gates disabled;
+2. open protected **Operations** and check Environment Diagnostics;
+3. check Database and Storage health;
+4. check Scheduler state;
+5. check Provider Health and failed/retrying jobs;
+6. confirm `PUBLIC_BASE_URL`, HTTPS, OAuth callback configuration, and provider prerequisites;
+7. check server logs for the normalized error code;
+8. run `npm test` before changing production settings.
 
-Run:
+Do not paste secrets into issue reports. Report the diagnostic code, setting **name**, provider error code, and relevant timestamp instead.
 
-```bash
-npm run db:migrate
-```
+## 19. Read the detailed milestone docs
 
-then start again.
+Important references:
 
-### `MIGRATION_CHECKSUM_MISMATCH:<file>`
+- `docs/V12_MEDIA_STORAGE.md`
+- `docs/V13_INSTAGRAM_TOKEN_REFRESH.md`
+- `docs/V14_META_PROVIDERS.md`
+- `docs/V15_TIKTOK_PROVIDER.md`
+- `docs/V16_OPERATIONS_CENTER.md`
+- `docs/V17_WHATSAPP_BUSINESS.md`
+- `docs/V18_CALENDAR_QUEUE.md`
+- `docs/V19_DRAFTS_COMPOSER.md`
+- `docs/V20_ANALYTICS_REPORTING.md`
+- `docs/V21_USERS_ROLES.md`
+- `docs/V22_BROWSER_E2E.md`
+- `docs/V23_BROWSER_CONTENT_E2E.md`
+- `docs/V24_BROWSER_OPERATOR_E2E.md`
+- `docs/V25_ACCOUNT_BOUND_SCHEDULING.md`
+- `docs/V26_DISTRIBUTED_RATE_LIMITING.md`
+- `docs/V28_BACKUP_RESTORE.md`
+- `docs/V29_OPERATIONAL_HEALTH.md`
 
-An applied historical migration changed. Restore it and put the schema change in a new migration file.
-
-### `/api/health` returns 503
-
-The repository health check failed. For PostgreSQL, verify database availability and credentials. Raw connection errors are deliberately hidden.
-
-### All composer platforms are disabled
-
-No connected account exists. Use **Accounts > Connect Instagram**.
-
-### Upload fails
-
-Use a nonempty JPEG, PNG, WebP, or MP4. Check per-file quota, total quota, upload-directory write permissions, and disk space.
-
-### Media cannot be deleted
-
-The asset is referenced by a persisted post. This is intentional.
-
-### Real posting does not start
-
-Confirm both `ALLOW_REAL_PUBLISH=true` and `SCHEDULER_ENABLED=true`, plus valid provider credentials.
-
-### `EADDRINUSE`
-
-Another process is using the configured port. Change `PORT` or stop the conflicting process.
-
-## 26. Reset JSON development data
-
-For JSON mode only:
-
-1. Stop Srocial.
-2. Delete `data/srocial.json` to reset records.
-3. Delete `data/uploads/` only if you also want to erase uploaded media.
-4. Start Srocial again.
-
-Do not use this reset procedure for PostgreSQL.
-
-## Quick Start — Safe Loopback JSON Mode
-
-```text
-1. Install Node.js 20+.
-2. Download or clone Srocial.
-3. Run: npm install
-4. Keep DATABASE_DRIVER=json.
-5. Keep APP_AUTH_ENABLED=false only for loopback-only local development.
-6. Run: npm start
-7. Open: http://127.0.0.1:3000
-8. Keep ALLOW_REAL_PUBLISH=false.
-9. Keep SCHEDULER_ENABLED=false.
-10. Run npm test when validating changes.
-11. Press Ctrl + C to stop.
-```
-
-## Quick Start — Authenticated Deployment
-
-```text
-1. Install Node.js 20+.
-2. Run: npm install
-3. Set PUBLIC_BASE_URL to the real HTTPS Srocial origin.
-4. Set APP_AUTH_ENABLED=true.
-5. Set ADMIN_USERNAME.
-6. Set a private ADMIN_PASSWORD of at least 12 characters.
-7. Set a random SESSION_SECRET of at least 32 characters.
-8. Choose JSON or PostgreSQL persistence.
-9. If PostgreSQL: set DATABASE_URL and run npm run db:migrate.
-10. Run: npm start
-11. Open the HTTPS Srocial URL and sign in.
-12. Keep real publishing flags false until intentionally enabled.
-```
+Before development work, also read `updaterules.md` and `PROBLEMS.md`.

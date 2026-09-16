@@ -80,7 +80,8 @@ const server = createServer(createRequestHandler({
   mediaStore,
   appAuth,
   webhookConfig,
-  whatsappAdapter: messagingRegistry.get('whatsapp') ?? null
+  whatsappAdapter: messagingRegistry.get('whatsapp') ?? null,
+  operationsRuntime: { mediaStore, schedulerLoop, environment:runtimeEnv }
 }));
 server.listen(port, host, () => { console.log(`Srocial listening on http://${host}:${port}`); });
 

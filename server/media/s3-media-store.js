@@ -3,6 +3,8 @@ import { Readable } from 'node:stream';
 import { createValidatedMediaIterable, mediaMetadataFromKey, MediaStoreError } from './media-format.js';
 
 const EMPTY_SHA256 = createHash('sha256').update('').digest('hex');
+const HEALTH_PROBE_BYTES = Buffer.from('ok');
+const HEALTH_PROBE_SHA256 = createHash('sha256').update(HEALTH_PROBE_BYTES).digest('hex');
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
 const DEFAULT_TOTAL_MAX_BYTES = 5 * 1024 * 1024 * 1024;
 const MAX_LIST_PAGES = 10000;
@@ -176,6 +178,38 @@ export function createS3MediaStore({ endpoint, bucket, prefix = '', publicBaseUr
     };
   }
 
+  async function healthCheck() {
+    const probeKey = `__srocial-health__/probe-${randomUUID()}`;
+    let probeCreated = false;
+    let probeRemoved = false;
+    try {
+      await requestClient.request({
+        method: 'PUT',
+        url: objectUrl(probeKey),
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': String(HEALTH_PROBE_BYTES.length)
+        },
+        body: HEALTH_PROBE_BYTES,
+        payloadHash: HEALTH_PROBE_SHA256
+      });
+      probeCreated = true;
+      await requestClient.request({ method: 'DELETE', url: objectUrl(probeKey), payloadHash: EMPTY_SHA256 });
+      probeRemoved = true;
+      return { ok: true, backend: 's3', writable: true, errorCode: null };
+    } catch {
+      return { ok: false, backend: 's3', writable: false, errorCode: 'MEDIA_STORAGE_UNAVAILABLE' };
+    } finally {
+      if (probeCreated && !probeRemoved) {
+        try {
+          await requestClient.request({ method: 'DELETE', url: objectUrl(probeKey), payloadHash: EMPTY_SHA256 });
+        } catch {
+          // Never leak object-store diagnostics from a health probe.
+        }
+      }
+    }
+  }
+
   async function putValidatedKey(key, readable, { contentType } = {}) {
     const value = String(key ?? '');
     const metadata = mediaMetadataFromKey(value);
@@ -209,6 +243,8 @@ export function createS3MediaStore({ endpoint, bucket, prefix = '', publicBaseUr
 
   return {
     async initialize() {},
+
+    healthCheck,
 
     async save(readable, { contentType } = {}) {
       const { format, bytes, size } = await collectValidated(readable, contentType, byteLimit);
