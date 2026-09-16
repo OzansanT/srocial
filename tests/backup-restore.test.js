@@ -205,7 +205,7 @@ test('restore verifies media checksums before mutating a non-empty target', asyn
     const asset = await mediaStore.save(Readable.from([JPEG]), { contentType: 'image/jpeg' });
     await createBackup({ outputDirectory: backupDirectory, databaseStore, databaseDriver: 'json', mediaStore, mediaDriver: 'local' });
 
-    await writeFile(join(backupDirectory, 'media', asset.key), Buffer.from('tampered'));
+    await writeFile(join(backupDirectory, 'media', asset.key), Buffer.alloc(JPEG.length, 0x42));
     await writeFile(dataFile, JSON.stringify({ posts: [{ id: 'target-must-remain' }] }), 'utf8');
 
     await assert.rejects(
