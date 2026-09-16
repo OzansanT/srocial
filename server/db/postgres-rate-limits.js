@@ -31,9 +31,9 @@ export function createPostgresRateLimits(pool) {
         await client.query('BEGIN');
         await client.query(
           `INSERT INTO rate_limit_buckets (scope, client_key, window_start_ms, request_count, updated_at)
-           VALUES ($1,$2,$3,0,to_timestamp($3 / 1000.0))
+           VALUES ($1,$2,$3::bigint,0,to_timestamp($4::double precision / 1000.0))
            ON CONFLICT (scope, client_key) DO NOTHING`,
-          [scope, key, nowMs]
+          [scope, key, nowMs, nowMs]
         );
 
         const selected = await client.query(
@@ -61,7 +61,9 @@ export function createPostgresRateLimits(pool) {
           requestCount += 1;
           await client.query(
             `UPDATE rate_limit_buckets
-             SET window_start_ms = $3, request_count = $4, updated_at = to_timestamp($5 / 1000.0)
+             SET window_start_ms = $3::bigint,
+                 request_count = $4,
+                 updated_at = to_timestamp($5::double precision / 1000.0)
              WHERE scope = $1 AND client_key = $2`,
             [scope, key, windowStartMs, requestCount, nowMs]
           );
@@ -75,7 +77,7 @@ export function createPostgresRateLimits(pool) {
 
         await client.query(
           `UPDATE rate_limit_buckets
-           SET updated_at = to_timestamp($3 / 1000.0)
+           SET updated_at = to_timestamp($3::double precision / 1000.0)
            WHERE scope = $1 AND client_key = $2`,
           [scope, key, nowMs]
         );
