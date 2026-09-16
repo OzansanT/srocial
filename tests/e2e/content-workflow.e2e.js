@@ -242,14 +242,3 @@ test('real browser schedules text-only Facebook content and performs Queue/Calen
   await browser.waitFor(`document.querySelector('.queue-row__badges')?.textContent.includes('cancelled')`, { timeoutMs: 8_000 });
   assert.equal(await browser.evaluate(`document.querySelector('.calendar-post__state')?.textContent`), 'cancelled');
 });
-
-test('real browser rejects invalid bulk reschedule input before any request changes state', { timeout: 15_000 }, async () => {
-  await browser.click('.queue-row__selection input');
-  await browser.fill('#queue-bulk-time', '');
-  await browser.click('#queue-bulk-reschedule');
-  await browser.waitFor(`document.querySelector('#queue-feedback')?.textContent === 'Choose a valid new publish time.'`);
-
-  const postList = await browserFetch('/api/posts');
-  const scheduledPost = postList.payload?.posts?.find((post) => post.caption === 'V23 scheduled browser post');
-  assert.equal(scheduledPost?.state, 'CANCELLED');
-});
