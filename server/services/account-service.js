@@ -1,3 +1,5 @@
+import { deriveAccountHealth } from './account-health.js';
+
 export const ACCOUNT_STATES = Object.freeze({
   DISCONNECTED: 'DISCONNECTED',
   CONNECTING: 'CONNECTING',
@@ -8,10 +10,10 @@ export const ACCOUNT_STATES = Object.freeze({
 
 function normalizeProvider(provider) { return String(provider ?? '').trim().toLowerCase(); }
 
-export function toSafeAccount(account) {
+export function toSafeAccount(account, { now = new Date() } = {}) {
   if (!account) return null;
   const { accessTokenEncrypted, refreshTokenEncrypted, ...safe } = account;
-  return safe;
+  return { ...safe, ...deriveAccountHealth(account, { now }) };
 }
 
 export async function upsertConnectedAccount(repository, cipher, connection, { now = new Date() } = {}) {
@@ -38,11 +40,11 @@ export async function upsertConnectedAccount(repository, cipher, connection, { n
   const account = existing
     ? await repository.updateAccount(existing.id, patch)
     : await repository.createAccount({ ...patch, createdAt: timestamp });
-  return toSafeAccount(account);
+  return toSafeAccount(account, { now });
 }
 
-export async function listSafeAccounts(repository) {
-  return (await repository.listAccounts()).map(toSafeAccount);
+export async function listSafeAccounts(repository, { now = new Date() } = {}) {
+  return (await repository.listAccounts()).map((account) => toSafeAccount(account, { now }));
 }
 
 export async function disconnectAccount(repository, id, { now = new Date() } = {}) {
@@ -55,7 +57,8 @@ export async function disconnectAccount(repository, id, { now = new Date() } = {
     refreshTokenEncrypted: null,
     tokenExpiresAt: null,
     disconnectedAt: timestamp,
+    lastErrorCode: null,
     updatedAt: timestamp
   });
-  return toSafeAccount(updated);
+  return toSafeAccount(updated, { now });
 }
