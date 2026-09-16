@@ -4,17 +4,18 @@ Srocial is a self-hosted social-media publishing, scheduling, monitoring, analyt
 
 Instagram, Facebook Pages, Threads, and TikTok share the social publishing and analytics runtime. WhatsApp Business is intentionally a separate contacts/templates/campaign subsystem that reuses the same repository, scheduler infrastructure, verified-webhook layer, and Operations Center.
 
-## Current Status — V30
+## Current Status — V31
 
 The runnable foundation includes:
 
 - vanilla HTML/CSS/JavaScript dashboard with Accounts, Media Library, Composer, Drafts, Operations, WhatsApp, Queue, Calendar, Analytics, and Admin Users;
 - provider-neutral OAuth/account infrastructure with encrypted credentials plus token-expiration warnings and reconnect-needed account health;
-- Instagram professional-account OAuth, token refresh, image/Reel publishing/status, and analytics;
+- Instagram professional-account OAuth, token refresh, image/Reel plus ordered 2–10-item carousel publishing/status, and analytics;
 - Facebook Pages OAuth with deterministic Page selection, text/image/Reel publishing, and analytics;
 - Threads OAuth, token refresh, text/image/video publishing/status, and analytics;
 - TikTok Login Kit OAuth, Creator Info, privacy/interaction-aware Direct Post, rotating refresh tokens, async status polling, and analytics;
 - direct JPEG/PNG/WebP/MP4 upload using local or S3-compatible storage, Media Library reuse/deletion/quota, and optional orphan cleanup;
+- ordered 1–10-item Composer media with append-from-upload/Media-Library behavior and full draft/state restoration;
 - one persistent scheduler with stale-lock recovery, retry/backoff, status checks, token refresh, idempotency guards, and execution-domain filtering;
 - JSON development persistence and PostgreSQL production persistence with transaction-safe job claims and checksum-verified migrations;
 - atomic social and WhatsApp scheduling graphs;
@@ -45,7 +46,7 @@ The scheduler starts only when `SCHEDULER_ENABLED=true` and at least one executi
 
 | Channel | Current state |
 | --- | --- |
-| Instagram | OAuth + account management + long-lived token refresh + account health + image/Reel publish/status + analytics + content overrides |
+| Instagram | OAuth + account management + long-lived token refresh + account health + image/Reel + ordered carousel publish/status + analytics + content overrides |
 | Facebook Pages | OAuth + Page-token resolution + account health + text/image/Reel publish/status + analytics + content overrides |
 | Threads | OAuth + long-lived token refresh + account health + text/image/video publish/status + analytics + content overrides |
 | TikTok | OAuth + rotating token refresh + account health + Creator Info + privacy-aware photo/video Direct Post + status + analytics + content overrides |
@@ -205,6 +206,8 @@ The Accounts UI supports Instagram, Facebook, Threads, and TikTok connect/reconn
 
 V30 adds an operator-facing health projection without creating another refresh system. Connected accounts inside the existing 30-day refresh horizon are shown as `EXPIRING` with an exact whole-day warning such as `Token expires in 8 days.` Accounts that are disconnected, expired, permission-revoked, in an account error state, or still recorded as connected after their token expiry are shown as `RECONNECT_NEEDED` with a safe reason and the existing provider `Reconnect` action. TikTok authorization removal now preserves the safe `PERMISSION_REVOKED` diagnostic so the UI can distinguish it from an ordinary disconnect.
 
+V31 adds ordered Instagram carousel scheduling. The master Composer now accepts up to 10 ordered image/video rows; uploads and Media Library selections append to the list, drafts restore the complete order, and Instagram accepts 1–10 items while Facebook, Threads, and TikTok retain their existing single-item limits. For Instagram, one item follows the existing image/Reel path and 2–10 items follow the carousel child-to-parent workflow.
+
 Preferred scheduling request:
 
 ```json
@@ -218,15 +221,33 @@ Preferred scheduling request:
     }
   ],
   "media": [
-    { "type": "image", "url": "https://cdn.example.com/post.jpg" }
+    { "type": "image", "url": "https://cdn.example.com/carousel-1.jpg" },
+    { "type": "image", "url": "https://cdn.example.com/carousel-2.jpg" }
   ],
-  "scheduledAt": "2026-09-14T15:00:00.000Z"
+  "scheduledAt": "2026-09-16T15:00:00.000Z"
 }
 ```
 
 Every explicit account must exist, be `CONNECTED`, and match the selected platform. Social scheduling persists the post, master media, publications, and executable jobs as one all-or-nothing repository operation. Legacy platform-only scheduling is rejected unless `ALLOW_LEGACY_PLATFORM_SCHEDULING=true` is explicitly enabled.
 
-See `docs/V25_ACCOUNT_BOUND_SCHEDULING.md` and `docs/V30_ACCOUNT_TOKEN_HEALTH.md`.
+See `docs/V25_ACCOUNT_BOUND_SCHEDULING.md`, `docs/V30_ACCOUNT_TOKEN_HEALTH.md`, and `docs/V31_INSTAGRAM_CAROUSEL.md`.
+
+## Instagram Carousel & Multi-Image Composer — V31
+
+V31 closes source roadmap items **#24 Instagram carousel posts** and **#25 Instagram multi-image composer UI**.
+
+- Composer media order is the visible row order and is persisted through scheduling/drafts.
+- Instagram supports 1–10 ordered image/video items; 2–10 creates a carousel.
+- Carousel child containers are created in order, video children can be status-polled until ready, and the parent container is created/published after all children are ready.
+- Resumable provider state is stored in `providerOptions.instagramCarousel` so worker retries/status checks continue the same workflow instead of intentionally recreating completed steps.
+- Social publication/status workers persist adapter-returned provider state before later execution steps.
+- Automated browser coverage verifies two-item Instagram scheduling and persisted `sortOrder`.
+
+Source items **#26–28**—Instagram image aspect-ratio, video-duration, and file-size validation—remain separate follow-on validation work and are the next source-defined milestone.
+
+Real provider carousel delivery remains `SR-P011` until verified with an approved Instagram Professional account and production public-HTTPS media.
+
+See `docs/V31_INSTAGRAM_CAROUSEL.md`.
 
 ## Media Storage
 
@@ -314,15 +335,15 @@ Current migrations run through:
 010_rate_limit_buckets.sql
 ```
 
-## Browser E2E Hardening — V22–V30
+## Browser E2E Hardening — V22–V31
 
 The real-browser suite launches the real Srocial server against isolated JSON/media state and controls installed headless Chrome through CDP. Browser fixtures keep external execution gates disabled and contain no live provider token.
 
-Coverage includes authentication/RBAC/Admin-user flows, Composer/drafts/reusable resources/overrides/compatibility, media lifecycle, account-bound scheduling, Accounts, WhatsApp, Operations, Analytics, Queue/Calendar lifecycle controls, drag/drop, native Reschedule prompt accept/invalid/dismiss paths, individual cancellation, and V30 permission-revoked reconnect health.
+Coverage includes authentication/RBAC/Admin-user flows, Composer/drafts/reusable resources/overrides/compatibility, media lifecycle including V31 append/remove semantics, account-bound scheduling, ordered two-image Instagram carousel scheduling/persistence, Accounts, WhatsApp, Operations, Analytics, Queue/Calendar lifecycle controls, drag/drop, native Reschedule prompt accept/invalid/dismiss paths, individual cancellation, and V30 permission-revoked reconnect health.
 
 V28 raised the guarded Chrome startup default to **30 seconds** after a real Actions cold-start exceeded the prior 20-second budget; the override remains validated and bounded.
 
-See `docs/V22_BROWSER_E2E.md`, `docs/V23_BROWSER_CONTENT_E2E.md`, and `docs/V24_BROWSER_OPERATOR_E2E.md`.
+See `docs/V22_BROWSER_E2E.md`, `docs/V23_BROWSER_CONTENT_E2E.md`, `docs/V24_BROWSER_OPERATOR_E2E.md`, and `docs/V31_INSTAGRAM_CAROUSEL.md`.
 
 ## Distributed Rate Limiting & Trusted Proxies — V26
 
@@ -344,9 +365,9 @@ find server client tests -name '*.js' -print0 | xargs -0 -n1 node --check
 timeout --signal=TERM --kill-after=5s 75s npm run test:e2e
 ```
 
-The V30 code-complete integration run `35095442455` passed migrations `001–010`, **505/505 Node tests**, JavaScript syntax, and **16/16 real Chrome/CDP E2E scenarios**, including the Accounts browser path for a permission-revoked reconnect-needed state.
+V31 adds deterministic carousel/Composer/compatibility contracts and expands the real Chrome/CDP suite with ordered Instagram carousel scheduling plus Media Library append/remove regression coverage. Exact final-head and merged-main workflow evidence is required before the milestone is considered integrated.
 
-Automated CI cannot substitute for approved provider applications, live provider credentials, real WhatsApp sender identities, public HTTPS callbacks, analytics permissions/metric availability, or an operator's real reverse-proxy/load-balancer topology. Those external prerequisites remain separately tracked.
+Automated CI cannot substitute for approved provider applications, live provider credentials, real WhatsApp sender identities, public HTTPS callbacks, analytics permissions/metric availability, live Instagram carousel delivery, or an operator's real reverse-proxy/load-balancer topology. Those external prerequisites remain separately tracked.
 
 ## Repository Structure
 
@@ -397,7 +418,8 @@ srocial/
 |  |- V26_DISTRIBUTED_RATE_LIMITING.md
 |  |- V28_BACKUP_RESTORE.md
 |  |- V29_OPERATIONAL_HEALTH.md
-|  `- V30_ACCOUNT_TOKEN_HEALTH.md
+|  |- V30_ACCOUNT_TOKEN_HEALTH.md
+|  `- V31_INSTAGRAM_CAROUSEL.md
 |- .env.example
 `- package.json
 ```
@@ -413,16 +435,18 @@ Source-aligned post-product work completed so far includes:
 3. **V26 — Distributed/Trusted-Proxy Rate Limiting (`SR-P006`)**;
 4. **V28 — Portable Backup & Restore**, closing source **#14–15**;
 5. **V29 — Operational Health & Environment Diagnostics**, closing source **#16–20** by reusing existing database/provider health and adding storage, scheduler, and environment diagnostics;
-6. **V30 — Account Token Expiration & Reconnect Health**, closing source **#22–23** while reusing the already implemented source **#21** token-refresh subsystem.
+6. **V30 — Account Token Expiration & Reconnect Health**, closing source **#22–23** while reusing the already implemented source **#21** token-refresh subsystem;
+7. **V31 — Instagram Carousel & Multi-Image Composer**, closing source **#24–25** with ordered 1–10 Instagram media, resumable carousel provider state, and real-browser Composer scheduling coverage.
 
-The next source-defined development is **#24 Instagram carousel posts — multiple images/videos** together with **#25 Instagram multi-image composer UI**. These should form the next bounded milestone before the separate Instagram validation items **#26–28**.
+The next source-defined development is the bounded Instagram validation milestone **#26 image aspect-ratio validation**, **#27 video duration validation**, and **#28 file-size validation** before scheduling.
 
 The persistent external-verification work remains:
 
 - `SR-P002` — live TikTok developer-app publishing verification;
 - `SR-P003` — live provider webhook/public HTTPS delivery verification;
 - `SR-P004` — live WhatsApp Business Cloud API campaign verification;
-- `SR-P010` — live provider analytics permission/metric verification.
+- `SR-P010` — live provider analytics permission/metric verification;
+- `SR-P011` — live Instagram carousel delivery/retry verification.
 
 See `PROBLEMS.md` for exact prerequisites and evidence rules.
 
