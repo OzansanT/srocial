@@ -58,6 +58,14 @@ async function login() {
   await browser.waitFor(`document.querySelector('input[name="platform"][value="facebook"]')?.disabled === false`, { timeoutMs: 8_000 });
 }
 
+async function loadFreshComposer() {
+  await browser.navigate(`${server.baseUrl}/`);
+  await browser.waitFor(`document.querySelector('#logout-session')?.hidden === false`);
+  await browser.waitFor(`document.querySelector('input[name="platform"][value="facebook"]')?.disabled === false`, { timeoutMs: 8_000 });
+  await browser.waitFor(`document.querySelector('#draft-selector')?.value === ''`);
+  await browser.waitFor(`document.querySelectorAll('#composer-media-items [data-composer-media-row]').length === 1`);
+}
+
 async function chooseFacebook() {
   await browser.fill('[name="account:facebook"]', FACEBOOK.id);
   const checked = await browser.evaluate(`document.querySelector('input[name="platform"][value="facebook"]')?.checked === true`);
@@ -207,6 +215,7 @@ test('real browser uploads, appends, removes and deletes local media through the
 });
 
 test('real browser schedules text-only Facebook content and performs Queue/Calendar bulk lifecycle actions', { timeout: 30_000 }, async () => {
+  await loadFreshComposer();
   const scheduleValue = localDateTimeAfter(75);
   const rescheduleValue = localDateTimeAfter(150);
 
