@@ -189,7 +189,7 @@ export function createRequestHandler({
       const url = new URL(request.url, 'http://localhost');
 
       if (request.method === 'POST' && url.pathname === '/api/auth/login' && appAuth) {
-        const loginLimit = appAuth.consumeLogin(request);
+        const loginLimit = await appAuth.consumeLogin(request);
         if (!loginLimit.allowed) {
           return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(loginLimit.retryAfterSeconds) });
         }
@@ -209,7 +209,7 @@ export function createRequestHandler({
         }
 
         if (isApiRequest(url.pathname)) {
-          const limit = appAuth.consumeApi(request);
+          const limit = await appAuth.consumeApi(request);
           if (!limit.allowed) {
             return sendJson(response, 429, { error: 'rate_limited' }, { 'retry-after': String(limit.retryAfterSeconds) });
           }
