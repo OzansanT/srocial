@@ -1,7 +1,7 @@
 const SUPPORTED_PLATFORMS = new Set(['instagram', 'facebook', 'threads', 'tiktok']);
 const CAPTION_LIMITS = Object.freeze({ instagram: 2200, facebook: 63206, threads: 500, tiktok: 2200 });
 const MEDIA_RULES = Object.freeze({
-  instagram: { min: 1, max: 1 },
+  instagram: { min: 1, max: 10 },
   facebook: { min: 0, max: 1 },
   threads: { min: 0, max: 1 },
   tiktok: { min: 1, max: 1 }
